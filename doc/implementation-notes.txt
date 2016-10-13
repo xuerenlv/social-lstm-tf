@@ -1,0 +1,8 @@
+1. Embedding dimension for spatial coordinates is 64 before using them as an input to LSTM
+2. N_0 = 32 (spatial pooling size)
+3. 8x8 sum pooling window size without overlaps
+4. Hidden state (or cell state) dimension for LSTM is 128
+5. Use an embedding layer of ReLU non-linearity on top of pooled hidden state features, before using them for calculating the hidden state tensor
+6. Learning rate of 0.003
+7. RMS-prop is used as the optimizer
+

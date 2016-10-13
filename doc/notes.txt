@@ -1,0 +1,3 @@
+1. We are trying to predict *real-valued* sequences
+2. The idea of *mixture density networks* is to use the outputs of a neural network to parameterise a mixture distribution
+
