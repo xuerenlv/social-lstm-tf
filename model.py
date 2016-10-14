@@ -24,7 +24,7 @@ class Model():
 
         # args.rnn_size contains the dimension of the hidden state of the LSTM
         cell = rnn_cell.BASICLSTMCell(args.rnn_size)
-        
+
         # TODO: (improve) For now, let's use a single layer of LSTM
         # TODO: (improve) Dropout layer can be added here
         self.cell = cell
@@ -39,7 +39,7 @@ class Model():
         # Initial cell state of the LSTM (initialised with zeros)
         self.initial_state = cell.zero_state(args.batch_size, tf.float32)
 
-        # Embedding 
+        # Embedding
         with tf.variable_scope("coordinate_embedding"):
             # The spatial embedding layer
             # Embed the 2D coordinates into embedding_size dimensions
@@ -86,7 +86,7 @@ class Model():
         def get_lossfunc(z_mux, z_muy, z_sx, z_sy, z_corr, x_data, y_data, args):
             result0 = tf_2d_normal(x_data, y_data, z_mux, z_muy, z_sx, z_sy, z_corr)
 
-            epsilon = 1e-20 # For numerical stability purposes
+            epsilon = 1e-20  # For numerical stability purposes
             # TODO: (resolve) I don't think we need this as we don't have the inner
             # summation
             # result1 = tf.reduce_sum(result0, 1, keep_dims=True)
