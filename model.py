@@ -13,7 +13,7 @@ from tensorflow.python.ops import rnn_cell
 # TODO: For now just implementing vanilla LSTM without the social layer
 class Model():
 
-    def __init__(self, args):
+    def __init__(self, args, infer=False):
         '''
         Initialisation function for the class Model.
         Params:
@@ -21,6 +21,10 @@ class Model():
         '''
         # Store the arguments
         self.args = args
+
+        if infer:
+            args.batch_size = 1
+            args.seq_length = 1
 
         # args.rnn_size contains the dimension of the hidden state of the LSTM
         cell = rnn_cell.BasicLSTMCell(args.rnn_size, state_is_tuple=False)
@@ -134,7 +138,7 @@ class Model():
         # Extract the coef from the output of the linear layer
         [o_mux, o_muy, o_sx, o_sy, o_corr] = get_coef(output)
         self.output = output
-        
+
         self.mux = o_mux
         self.muy = o_muy
         self.sx = o_sx
@@ -143,13 +147,13 @@ class Model():
 
         # Compute the loss function
         lossfunc = get_lossfunc(o_mux, o_muy, o_sx, o_sy, o_corr, x_data, y_data)
-        
+
         # Compute the cost
         self.cost = tf.div(lossfunc, (args.batch_size * args.seq_length))
 
         # Get trainable_variables
         tvars = tf.trainable_variables()
-        
+
         # TODO: (resolve) We are clipping the gradients as is usually done in LSTM
         # implementations. Social LSTM paper doesn't mention about this at all
         self.gradients = tf.gradients(self.cost, tvars)
@@ -195,6 +199,7 @@ class Model():
 
         ret = traj
         # Last position in the observed trajectory
+
         last_pos = traj[-1]
 
         # Construct the input data tensor for the last point
@@ -210,10 +215,10 @@ class Model():
             [o_mux, o_muy, o_sx, o_sy, o_corr, state] = sess.run([self.mux, self.muy, self.sx, self.sy, self.corr, self.final_state], feed)
 
             # Sample the next point from the distribution
-            next_x, next_y = sample_gaussian_2d(o_mux[0], o_muy[0], o_sx[0], o_sy[0], o_corr[0])
+            next_x, next_y = sample_gaussian_2d(o_mux[0][0], o_muy[0][0], o_sx[0][0], o_sy[0][0], o_corr[0][0])
             # Append the new point to the trajectory
             # ret.append((next_x, next_y))
-            np.vstack((ret, [next_x, next_y]))
+            ret = np.vstack((ret, [next_x, next_y]))
 
             # Set the current sampled position as the last observed position
             prev_data[0, 0, 0] = next_x
