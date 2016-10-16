@@ -14,14 +14,14 @@ def main():
     parser.add_argument('--rnn_size', type=int, default=128,
                         help='size of RNN hidden state')
     # TODO: (improve) Number of layers not used. Only a single layer implemented
-    parser.add_argument('--num_layers', type=int, default=2,
+    parser.add_argument('--num_layers', type=int, default=1,
                         help='number of layers in the RNN')
     # Model currently not used. Only LSTM implemented
     parser.add_argument('--model', type=str, default='lstm',
                         help='rnn, gru, or lstm')
     parser.add_argument('--batch_size', type=int, default=50,
                         help='minibatch size')
-    parser.add_argument('--seq_length', type=int, default=300,
+    parser.add_argument('--seq_length', type=int, default=5,
                         help='RNN sequence length')
     parser.add_argument('--num_epochs', type=int, default=30,
                         help='number of epochs')
@@ -34,11 +34,12 @@ def main():
                         help='learning rate')
     parser.add_argument('--decay_rate', type=float, default=0.95,
                         help='decay rate for rmsprop')
-    # parser.add_argument('--data_scale', type=float, default=20,
-    #                    help='factor to scale raw data down by')
     # Dropout not implemented.
     parser.add_argument('--keep_prob', type=float, default=0.8,
                         help='dropout keep probability')
+    # NOTE: Added a new argument that represents the embeding size
+    parser.add_argument('--embedding_size', type=int, default=128,
+                        help='Embedding dimension for the spatial coordinates')
     args = parser.parse_args()
     train(args)
 
@@ -63,8 +64,14 @@ def train(args):
             for b in range(data_loader.num_batches):
                 start = time.time()
                 x, y = data_loader.next_batch()
+
                 feed = {model.input_data: x, model.target_data: y, model.initial_state: state}
-                train_loss, state, _ = sess.run([model.cost, model.final_state, model.train_op], feed)
+                train_loss, state, _, lr = sess.run([model.cost, model.final_state, model.train_op, model.lr], feed)
+                # print result
+                # print output_b
+                #print gradients
+                # print input_data
+                # print lr
                 end = time.time()
                 print(
                     "{}/{} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}"

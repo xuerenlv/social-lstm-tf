@@ -5,7 +5,6 @@ Social LSTM Paper: http://vision.stanford.edu/pdf/CVPR16_N_LSTM.pdf
 Author : Anirudh Vemula
 '''
 
-
 import tensorflow as tf
 import numpy as np
 from tensorflow.python.ops import rnn_cell
@@ -20,43 +19,63 @@ class Model():
         Params:
         args: Contains arguments required for the Model creation
         '''
+        # Store the arguments
         self.args = args
 
         # args.rnn_size contains the dimension of the hidden state of the LSTM
-        cell = rnn_cell.BASICLSTMCell(args.rnn_size)
+        cell = rnn_cell.BasicLSTMCell(args.rnn_size, state_is_tuple=False)
 
+        # Multi-layer RNN construction
+        # cell = rnn_cell.MultiRNNCell([cell] * args.num_layers, state_is_tuple=False)
+        
         # TODO: (improve) For now, let's use a single layer of LSTM
         # TODO: (improve) Dropout layer can be added here
         self.cell = cell
 
         # TODO: (resolve) Do we need to use a fixed seq_length?
+        
         # Input data contains sequence of (x,y) points
         self.input_data = tf.placeholder(tf.float32, [None, args.seq_length, 2])
+        # target data contains sequences of (x,y) points as well
         self.target_data = tf.placeholder(tf.float32, [None, args.seq_length, 2])
 
+        # Learning rate
         self.lr = tf.Variable(args.learning_rate, trainable=False, name="learning_rate")
 
         # Initial cell state of the LSTM (initialised with zeros)
-        self.initial_state = cell.zero_state(args.batch_size, tf.float32)
+        self.initial_state = cell.zero_state(batch_size=args.batch_size, dtype=tf.float32)
+
+        # Output size is the set of parameters (mu, sigma, corr)
+        output_size = 5  # 2 mu, 2 sigma and 1 corr
 
         # Embedding
-        with tf.variable_scope("coordinate_embedding"):
-            # The spatial embedding layer
-            # Embed the 2D coordinates into embedding_size dimensions
-            # TODO: (improve) For now assume embedding_size = rnn_size
-            embedding = tf.get_variable("embedding", [2, args.embedding_size])
+        # with tf.variable_scope("coordinate_embedding"):
+        #  The spatial embedding using a ReLU layer
+        #  Embed the 2D coordinates into embedding_size dimensions
+        #  TODO: (improve) For now assume embedding_size = rnn_size
+        #  embedding_w = tf.get_variable("embedding_w", [2, args.embedding_size])
+        #  embedding_b = tf.get_variable("embedding_b", [args.embedding_size])
 
         # Output linear layer
-        with tf.variable_scope("output_layer"):
-            # args.output_size contains the number of outputs of the RNN
-            output_w = tf.get_variable("output_w", [args.rnn_size, args.output_size])
-            output_b = tf.get_variable("output_b", [args.output_size])
+        with tf.variable_scope("rnnlm"):
+            output_w = tf.get_variable("output_w", [args.rnn_size, output_size], initializer=tf.truncated_normal_initializer(stddev=0.01), trainable=True)
+            output_b = tf.get_variable("output_b", [output_size], initializer=tf.constant_initializer(0.01), trainable=True)
 
-        # Embed inputs
-        inputs = tf.split(1, args.seq_length, tf.nn.embedding_lookup(embedding, self.input_data))
+        self.output_b = output_b
+        self.output_w = output_w
+
+        # Embed inputs i.e. the ReLU embedding layer
+        # embedded_inputs = tf.add(tf.matmul(inputs, embedding_w), embedding_b)
+        # embedded_inputs = tf.nn.relu(embedded_inputs)
+        # TODO: (improve) Add the embedding layer.
+
+        # Split inputs according to sequences.
+        inputs = tf.split(1, args.seq_length, self.input_data)
+        # Get a list of 2D tensors. Each of size numPoints x 2
         inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
 
         outputs, last_state = tf.nn.seq2seq.rnn_decoder(inputs, self.initial_state, cell, loop_function=None, scope="rnnlm")
+
         output = tf.reshape(tf.concat(1, outputs), [-1, args.rnn_size])
 
         # Apply the linear layer
@@ -78,19 +97,20 @@ class Model():
             result = tf.exp(tf.div(-z, 2*negRho))
             denom = 2 * np.pi * tf.mul(sxsy, tf.sqrt(negRho))
             result = tf.div(result, denom)
+            self.result = result
             return result
 
         # Important difference between loss func of Social LSTM and Graves (2013)
         # is that it is evaluated over all time steps in the latter whereas it is
         # done from t_obs+1 to t_pred in the former
-        def get_lossfunc(z_mux, z_muy, z_sx, z_sy, z_corr, x_data, y_data, args):
+        def get_lossfunc(z_mux, z_muy, z_sx, z_sy, z_corr, x_data, y_data):
             result0 = tf_2d_normal(x_data, y_data, z_mux, z_muy, z_sx, z_sy, z_corr)
-
+            
             epsilon = 1e-20  # For numerical stability purposes
             # TODO: (resolve) I don't think we need this as we don't have the inner
             # summation
             # result1 = tf.reduce_sum(result0, 1, keep_dims=True)
-            result1 = tf.log(tf.maximum(result0, epsilon))  # Numerical stability
+            result1 = -tf.log(tf.maximum(result0, epsilon))  # Numerical stability
 
             # TODO: For now, implementing loss func over all time-steps
             return tf.reduce_sum(result1)
@@ -103,7 +123,7 @@ class Model():
             # -1 and 1
 
             z = output
-            z_mux, z_muy, z_sx, z_sy, z_corr = tf.split(1, 5, z[:, 1:])
+            z_mux, z_muy, z_sx, z_sy, z_corr = tf.split(1, 5, z)
 
             z_sx = tf.exp(z_sx)
             z_sy = tf.exp(z_sy)
@@ -113,7 +133,8 @@ class Model():
 
         # Extract the coef from the output of the linear layer
         [o_mux, o_muy, o_sx, o_sy, o_corr] = get_coef(output)
-
+        self.output = output
+        
         self.mux = o_mux
         self.muy = o_muy
         self.sx = o_sx
@@ -121,20 +142,20 @@ class Model():
         self.corr = o_corr
 
         # Compute the loss function
-        lossfunc = get_lossfunc(o_mux, o_muy, o_sx, o_sy, o_corr, x_data, y_data, args)
-
+        lossfunc = get_lossfunc(o_mux, o_muy, o_sx, o_sy, o_corr, x_data, y_data)
+        
         # Compute the cost
-        self.cost = lossfunc / (args.batch_size * args.seq_length)
+        self.cost = tf.div(lossfunc, (args.batch_size * args.seq_length))
 
         # Get trainable_variables
         tvars = tf.trainable_variables()
-
+        
         # TODO: (resolve) We are clipping the gradients as is usually done in LSTM
         # implementations. Social LSTM paper doesn't mention about this at all
-        grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars), args.grad_clip)
-
+        self.gradients = tf.gradients(self.cost, tvars)
+        grads, _ = tf.clip_by_global_norm(self.gradients, args.grad_clip)
         # NOTE: Using RMSprop as suggested by Social LSTM instead of Adam as Graves(2013) does
-        optimizer = tf.train.RMSPropOptimizer(self.lr)
+        optimizer = tf.train.AdamOptimizer(self.lr)
 
         # Train operator
         self.train_op = optimizer.apply_gradients(zip(grads, tvars))
@@ -145,7 +166,7 @@ class Model():
         until a few timesteps
         Params:
         sess: Current session of Tensorflow
-        traj: List of past trajectory points (as tuples)
+        traj: List of past trajectory points
         num: Number of time-steps into the future to be predicted
         '''
         def sample_gaussian_2d(mux, muy, sx, sy, rho):
@@ -191,7 +212,8 @@ class Model():
             # Sample the next point from the distribution
             next_x, next_y = sample_gaussian_2d(o_mux[0], o_muy[0], o_sx[0], o_sy[0], o_corr[0])
             # Append the new point to the trajectory
-            ret.append((next_x, next_y))
+            # ret.append((next_x, next_y))
+            np.vstack((ret, [next_x, next_y]))
 
             # Set the current sampled position as the last observed position
             prev_data[0, 0, 0] = next_x
