@@ -36,8 +36,7 @@ class Model():
         # TODO: (improve) Dropout layer can be added here
         self.cell = cell
 
-        # TODO: (resolve) Do we need to use a fixed seq_length?
-        
+        # TODO: (resolve) Do we need to use a fixed seq_length?        
         # Input data contains sequence of (x,y) points
         self.input_data = tf.placeholder(tf.float32, [None, args.seq_length, 2])
         # target data contains sequences of (x,y) points as well
@@ -68,11 +67,6 @@ class Model():
         self.output_b = output_b
         self.output_w = output_w
 
-        # Embed inputs i.e. the ReLU embedding layer
-        # embedded_inputs = tf.add(tf.matmul(inputs, embedding_w), embedding_b)
-        # embedded_inputs = tf.nn.relu(embedded_inputs)
-        # TODO: (improve) Add the embedding layer.
-
         # Split inputs according to sequences.
         inputs = tf.split(1, args.seq_length, self.input_data)
         # Get a list of 2D tensors. Each of size numPoints x 2
@@ -81,9 +75,9 @@ class Model():
         embedded_inputs = []
         for x in inputs:
             # Each x is a 2D tensor of size numPoints x 2
+            # Embedding layer
             embedded_x = tf.nn.relu(tf.add(tf.matmul(x, embedding_w), embedding_b))
             embedded_inputs.append(embedded_x)
-        
 
         outputs, last_state = tf.nn.seq2seq.rnn_decoder(embedded_inputs, self.initial_state, cell, loop_function=None, scope="rnnlm")
 
