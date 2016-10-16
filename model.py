@@ -53,12 +53,12 @@ class Model():
         output_size = 5  # 2 mu, 2 sigma and 1 corr
 
         # Embedding
-        # with tf.variable_scope("coordinate_embedding"):
+        with tf.variable_scope("coordinate_embedding"):
         #  The spatial embedding using a ReLU layer
         #  Embed the 2D coordinates into embedding_size dimensions
         #  TODO: (improve) For now assume embedding_size = rnn_size
-        #  embedding_w = tf.get_variable("embedding_w", [2, args.embedding_size])
-        #  embedding_b = tf.get_variable("embedding_b", [args.embedding_size])
+            embedding_w = tf.get_variable("embedding_w", [2, args.embedding_size])
+            embedding_b = tf.get_variable("embedding_b", [args.embedding_size])
 
         # Output linear layer
         with tf.variable_scope("rnnlm"):
@@ -78,7 +78,14 @@ class Model():
         # Get a list of 2D tensors. Each of size numPoints x 2
         inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
 
-        outputs, last_state = tf.nn.seq2seq.rnn_decoder(inputs, self.initial_state, cell, loop_function=None, scope="rnnlm")
+        embedded_inputs = []
+        for x in inputs:
+            # Each x is a 2D tensor of size numPoints x 2
+            embedded_x = tf.nn.relu(tf.add(tf.matmul(x, embedding_w), embedding_b))
+            embedded_inputs.append(embedded_x)
+        
+
+        outputs, last_state = tf.nn.seq2seq.rnn_decoder(embedded_inputs, self.initial_state, cell, loop_function=None, scope="rnnlm")
 
         output = tf.reshape(tf.concat(1, outputs), [-1, args.rnn_size])
 
