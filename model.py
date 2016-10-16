@@ -158,8 +158,10 @@ class Model():
         # implementations. Social LSTM paper doesn't mention about this at all
         self.gradients = tf.gradients(self.cost, tvars)
         grads, _ = tf.clip_by_global_norm(self.gradients, args.grad_clip)
+        
         # NOTE: Using RMSprop as suggested by Social LSTM instead of Adam as Graves(2013) does
-        optimizer = tf.train.AdamOptimizer(self.lr)
+        # optimizer = tf.train.AdamOptimizer(self.lr)
+        optimizer = tf.train.RMSPropOptimizer(self.lr)
 
         # Train operator
         self.train_op = optimizer.apply_gradients(zip(grads, tvars))
