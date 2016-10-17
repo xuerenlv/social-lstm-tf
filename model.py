@@ -3,6 +3,7 @@ Social LSTM model implementation using Tensorflow
 Social LSTM Paper: http://vision.stanford.edu/pdf/CVPR16_N_LSTM.pdf
 
 Author : Anirudh Vemula
+Date: 10th October 2016
 '''
 
 import tensorflow as tf
@@ -30,13 +31,12 @@ class Model():
         cell = rnn_cell.BasicLSTMCell(args.rnn_size, state_is_tuple=False)
 
         # Multi-layer RNN construction
-        # cell = rnn_cell.MultiRNNCell([cell] * args.num_layers, state_is_tuple=False)
-        
-        # TODO: (improve) For now, let's use a single layer of LSTM
+        cell = rnn_cell.MultiRNNCell([cell] * args.num_layers, state_is_tuple=False)
+
         # TODO: (improve) Dropout layer can be added here
         self.cell = cell
 
-        # TODO: (resolve) Do we need to use a fixed seq_length?        
+        # TODO: (resolve) Do we need to use a fixed seq_length?
         # Input data contains sequence of (x,y) points
         self.input_data = tf.placeholder(tf.float32, [None, args.seq_length, 2])
         # target data contains sequences of (x,y) points as well
@@ -53,9 +53,9 @@ class Model():
 
         # Embedding
         with tf.variable_scope("coordinate_embedding"):
-        #  The spatial embedding using a ReLU layer
-        #  Embed the 2D coordinates into embedding_size dimensions
-        #  TODO: (improve) For now assume embedding_size = rnn_size
+            #  The spatial embedding using a ReLU layer
+            #  Embed the 2D coordinates into embedding_size dimensions
+            #  TODO: (improve) For now assume embedding_size = rnn_size
             embedding_w = tf.get_variable("embedding_w", [2, args.embedding_size])
             embedding_b = tf.get_variable("embedding_b", [args.embedding_size])
 
@@ -110,7 +110,7 @@ class Model():
         # done from t_obs+1 to t_pred in the former
         def get_lossfunc(z_mux, z_muy, z_sx, z_sy, z_corr, x_data, y_data):
             result0 = tf_2d_normal(x_data, y_data, z_mux, z_muy, z_sx, z_sy, z_corr)
-            
+
             epsilon = 1e-20  # For numerical stability purposes
             # TODO: (resolve) I don't think we need this as we don't have the inner
             # summation
@@ -159,7 +159,7 @@ class Model():
         # implementations. Social LSTM paper doesn't mention about this at all
         self.gradients = tf.gradients(self.cost, tvars)
         grads, _ = tf.clip_by_global_norm(self.gradients, args.grad_clip)
-        
+
         # NOTE: Using RMSprop as suggested by Social LSTM instead of Adam as Graves(2013) does
         # optimizer = tf.train.AdamOptimizer(self.lr)
         optimizer = tf.train.RMSPropOptimizer(self.lr)

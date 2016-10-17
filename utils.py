@@ -4,6 +4,7 @@ import numpy as np
 import random
 
 
+# TODO : (improve) Add functionality to retrieve data only from specific datasets
 class DataLoader():
 
     def __init__(self, batch_size=50, seq_length=5):

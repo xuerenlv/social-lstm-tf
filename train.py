@@ -69,7 +69,7 @@ def train(args):
                 train_loss, state, _, lr = sess.run([model.cost, model.final_state, model.train_op, model.lr], feed)
                 # print result
                 # print output_b
-                #print gradients
+                # print gradients
                 # print input_data
                 # print lr
                 end = time.time()
