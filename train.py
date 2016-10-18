@@ -45,7 +45,8 @@ def main():
 
 
 def train(args):
-    data_loader = DataLoader(args.batch_size, args.seq_length)
+    data_loader = DataLoader(args.batch_size, args.seq_length, forcePreProcess=True)
+    print "Number of mini-batches per epoch is", data_loader.num_batches
 
     with open(os.path.join('save', 'config.pkl'), 'wb') as f:
         pickle.dump(args, f)
