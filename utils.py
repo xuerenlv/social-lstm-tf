@@ -7,7 +7,7 @@ import random
 # TODO : (improve) Add functionality to retrieve data only from specific datasets
 class DataLoader():
 
-    def __init__(self, batch_size=50, seq_length=5):
+    def __init__(self, batch_size=50, seq_length=5, forcePreProcess=False):
         '''
         Initialiser function for the DataLoader class
         params:
@@ -27,7 +27,7 @@ class DataLoader():
 
         data_file = os.path.join(self.data_dir, "trajectories.cpkl")
 
-        if not(os.path.exists(data_file)):
+        if not(os.path.exists(data_file)) or forcePreProcess:
             print("Creating pre-processed data from raw data")
             self.preprocess(self.data_dirs, data_file)
 
@@ -70,8 +70,8 @@ class DataLoader():
                 all_ped_data[current_ped + ped] = traj
 
             # Current dataset done
-            dataset_indices.append(numPeds)
-            current_ped = numPeds
+            dataset_indices.append(current_ped+numPeds)
+            current_ped += numPeds
 
         complete_data = (all_ped_data, dataset_indices)
         f = open(data_file, "wb")
