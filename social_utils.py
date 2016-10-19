@@ -23,8 +23,13 @@ class SocialDataLoader():
                           './data/ucy/zara/zara01', './data/ucy/zara/zara02',
                           './data/ucy/univ']
 
+        self.numDatasets = len(self.data_dirs)
+
         # Data directory where the pre-processed pickle file resides
         self.data_dir = './data'
+
+        # Maximum number of peds in a single frame
+        self.maxNumPeds = 30
 
         self.batch_size = batch_size
         self.seq_length = seq_length
@@ -153,20 +158,24 @@ class SocialDataLoader():
 
         all_frame_data = []
         frameList_data = []
+        numPeds_data = []
         dataset_index = 0
 
         for directory in data_dirs:
 
-            all_frame_data.append({})
+            # all_frame_data.append({})
+            numPeds_data.append([])
 
             file_path = os.path.join(directory, 'pixel_pos.csv')
 
             data = np.genfromtxt(file_path, delimiter=',')
 
-            numFrames = np.size(np.unique(data[0, :]))
             frameList = np.unique(data[0, :]).tolist()
+            numFrames = len(frameList)
 
             frameList_data.append(frameList)
+
+            all_frame_data.append(np.zeros((numFrames, self.maxNumPeds, 3)))
 
             # bounds to calculate the normalized neighborhood size
             if dataset_index == 0:
@@ -181,6 +190,7 @@ class SocialDataLoader():
             width_bound = self.neighborhood_size/width
             height_bound = self.neighborhood_size/height
 
+            curr_frame = 0
             for frame in frameList:
 
                 # Extract all pedestrians in current frame
@@ -189,13 +199,19 @@ class SocialDataLoader():
                 # Extract peds list
                 pedsList = pedsInFrame[1, :].tolist()
 
+                if len(pedsList) > 30:
+                    print len(pedsList)
+
+                # Add number of peds in the current frame to the stored data
+                numPeds_data[dataset_index].append(len(pedsList))
+
                 pedsWithGrid = []
 
                 for ped in pedsList:
                     # For each ped. Exclude the ped from others
                     pedsInFrameBut = pedsInFrame[:, pedsInFrame[1, :] != ped]
-                    current_x = pedsInFrame[3, pedsInFrame[1, :] == ped]
-                    current_y = pedsInFrame[2, pedsInFrame[1, :] == ped]
+                    current_x = pedsInFrame[3, pedsInFrame[1, :] == ped][0]
+                    current_y = pedsInFrame[2, pedsInFrame[1, :] == ped][0]
 
                     # Get lower and upper bounds for the grid
                     width_low = current_x - width_bound/2.
@@ -219,13 +235,17 @@ class SocialDataLoader():
                             ind = np.all([cell_x == m, cell_y == n], axis=0)
                             pedsInMN = pedsInFrameSurr[1, ind]
                             social_grid[m + n*self.grid_size] = map(int, pedsInMN.tolist())
-                    pedsWithGrid.append([ped, social_grid])
 
-                all_frame_data[dataset_index][frame] = pedsWithGrid
+                    # pedsWithGrid.append([ped, current_x, current_y, social_grid])
+                    pedsWithGrid.append([ped, current_x, current_y])
+
+                # all_frame_data[dataset_index][frame] = pedsWithGrid
+                all_frame_data[dataset_index][curr_frame, 0:len(pedsList), :] = np.array(pedsWithGrid)
+                curr_frame += 1
             dataset_index += 1
 
         f = open(data_file, "wb")
-        pickle.dump((all_frame_data, frameList_data), f, protocol=2)
+        pickle.dump((all_frame_data, frameList_data, numPeds_data), f, protocol=2)
         f.close()
 
     def load_preprocessed(self, data_file):
@@ -241,16 +261,17 @@ class SocialDataLoader():
 
         self.data = self.raw_data[0]
         self.frameList = self.raw_data[1]
+        self.numPedsList = self.raw_data[2]
         counter = 0
 
         for dataset in range(len(self.raw_data)):
             # get the frame data for the current dataset
-            all_frame_data = self.raw_data[dataset]
+            all_frame_data = self.raw_data[0][dataset]
             counter += int(len(all_frame_data) / (self.seq_length+2))
 
         self.num_batches = int(counter/self.batch_size)
 
-    def next_batch(self):
+    def next_batch_old(self):
         '''
         Function to get the next batch of data
         '''
@@ -259,16 +280,17 @@ class SocialDataLoader():
 
         frame_data = self.data[self.dataset_pointer]
         frames = self.frameList[self.dataset_pointer]
+        numPeds = self.numPedsList[self.dataset_pointer]
 
         for i in range(self.batch_size):
             current_x_seq = []
             current_y_seq = []
             idx = self.frame_pointer
-            if idx + self.seq_length + 1 < len(frame_data):
-                for offset in range(self.seq_length+1):
+            if idx + self.seq_length < len(frame_data):
+                for offset in range(self.seq_length):
                     current_x_seq.append(frame_data[frames[idx+offset]])
                     current_y_seq.append(frame_data[frames[idx+offset+1]])
-                self.frame_pointer += self.seq_length + 1
+                self.frame_pointer += self.seq_length
             else:
                 # Not enough frames left
                 self.tick_batch_pointer()
@@ -277,6 +299,32 @@ class SocialDataLoader():
             y_batch.append(current_y_seq)
 
         return x_batch, y_batch
+
+    def next_batch(self):
+        '''
+        Function to get the next batch of points
+        '''
+        x_batch = []  # source data
+        y_batch = []  # target data
+        x_numPeds_batch = []  # source numPeds data
+        y_numPeds_batch = []  # target numPeds data
+
+        for i in range(self.batch_size):
+            frame_data = self.data[self.dataset_pointer]
+            frames = self.frameList[self.dataset_pointer]
+            numPeds = self.numPedsList[self.dataset_pointer]
+            idx = self.frame_pointer
+            if idx + self.seq_length < frame_data.shape[0]:
+                x_batch.append(np.copy(frame_data[idx:idx+self.seq_length, :]))
+                y_batch.append(np.copy(frame_data[idx+1:idx+self.seq_length+1, :]))
+                x_numPeds_batch.append(list(numPeds[idx:idx+self.seq_length]))
+                y_numPeds_batch.append(list(numPeds[idx+1:idx+self.seq_length+1]))
+                self.frame_pointer += self.seq_length
+            else:
+                # Not enough frames left
+                self.tick_batch_pointer()
+
+        return x_batch, y_batch, x_numPeds_batch, y_numPeds_batch
 
     def tick_batch_pointer(self):
         '''
