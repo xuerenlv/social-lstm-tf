@@ -1,10 +1,6 @@
 import os
 import pickle
 import numpy as np
-import random
-
-# Debugging
-import ipdb
 
 
 class SocialDataLoader():
@@ -59,7 +55,6 @@ class SocialDataLoader():
         # for each dataset
 
         all_frame_data = []
-        all_grid_data = []
         frameList_data = []
         numPeds_data = []
         dataset_index = 0
@@ -216,7 +211,6 @@ class SocialDataLoader():
         self.dataset_pointer = 0
         self.frame_pointer = 0
 
-
     def preprocess(self, data_dirs, data_file):
         '''
         Function that will pre-process the pixel_pos.csv files of each dataset
@@ -295,7 +289,7 @@ class SocialDataLoader():
                     # Discretize the grid and get occupancy
                     cell_x = np.floor(((pedsInFrameSurr[3, :] - width_low)/(width_bound)) * self.grid_size)
                     cell_y = np.floor(((pedsInFrameSurr[2, :] - height_low)/(height_bound)) * self.grid_size)
-                    
+
                     social_grid = [[] for i in range(self.grid_size*self.grid_size)]
                     for m in range(self.grid_size):
                         for n in range(self.grid_size):
@@ -324,7 +318,6 @@ class SocialDataLoader():
 
         frame_data = self.data[self.dataset_pointer]
         frames = self.frameList[self.dataset_pointer]
-        numPeds = self.numPedsList[self.dataset_pointer]
 
         for i in range(self.batch_size):
             current_x_seq = []

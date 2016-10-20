@@ -40,7 +40,7 @@ class SocialModel():
         self.output_size = 5  # 2 mu, 2 sigma and 1 corr
 
         self.initial_state = cell.zero_state(batch_size=1, dtype=tf.float32)
-        
+
         self.social_tensor = tf.placeholder(tf.float32, [1, args.grid_size*args.grid_size*args.rnn_size])
 
         with tf.variable_scope("coordinate_embedding"):
@@ -60,7 +60,7 @@ class SocialModel():
 
         complete_input = tf.concat(1, [embedded_input, embedded_tensor])
         complete_input = tf.split(1, 1, complete_input)
-        
+
         output, last_state = tf.nn.rnn(cell, complete_input, initial_state=self.initial_state)
         # output, last_state = tf.nn.seq2seq.rnn_decoder(complete_input, self.initial_state, cell)
         # TODO : Needed?

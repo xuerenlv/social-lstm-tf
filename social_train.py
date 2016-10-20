@@ -8,7 +8,6 @@ import pickle
 from social_model import SocialModel
 from social_utils import SocialDataLoader
 
-import ipdb
 
 def main():
     parser = argparse.ArgumentParser()
@@ -56,7 +55,7 @@ def getSocialGrid(x, d, args):
     x : numpy matrix of size numPeds x 3
     d : dataset index
     '''
-    
+
     pedsWithGrid = {}
     pedsList = x[:, 0].tolist()
 
@@ -69,27 +68,27 @@ def getSocialGrid(x, d, args):
         # Other datasets
         width = 720.
         height = 576.
-    
+
     width_bound = args.neighborhood_size/width
     height_bound = args.neighborhood_size/height
 
     for ped in pedsList:
-        pedsInFrameBut = x[x[:, 0]!=ped, :]
-        current_x = x[x[:, 0]==ped, 1]
-        current_y = x[x[:, 0]==ped, 2]
+        pedsInFrameBut = x[x[:, 0] != ped, :]
+        current_x = x[x[:, 0] == ped, 1]
+        current_y = x[x[:, 0] == ped, 2]
 
         # Get lower and upper bounds for the grid
         width_low = current_x - width_bound/2.
         height_low = current_y - height_bound/2.
         width_high = current_x + width_bound/2.
         height_high = current_y + height_bound/2.
-        
+
         # Get the pedestrians who are in the surrounding
         pedsInFrameSurr = pedsInFrameBut[pedsInFrameBut[:, 1] <= width_high, :]
         pedsInFrameSurr = pedsInFrameSurr[pedsInFrameSurr[:, 1] >= width_low, :]
         pedsInFrameSurr = pedsInFrameSurr[pedsInFrameSurr[:, 2] <= height_high, :]
         pedsInFrameSurr = pedsInFrameSurr[pedsInFrameSurr[:, 2] >= height_low, :]
-    
+
         cell_x = np.floor(((pedsInFrameSurr[:, 1] - width_low)/(width_bound)) * args.grid_size)
         cell_y = np.floor(((pedsInFrameSurr[:, 2] - height_low)/(height_bound)) * args.grid_size)
 
@@ -101,8 +100,9 @@ def getSocialGrid(x, d, args):
                 pedsInMN = pedsInFrameSurr[ind, 0]
                 grid[m + n*args.grid_size] = map(int, pedsInMN.tolist())
         pedsWithGrid[ped] = grid
-        
+
     return pedsWithGrid
+
 
 def getSocialTensor(grid, states, args):
     '''
@@ -112,7 +112,7 @@ def getSocialTensor(grid, states, args):
     states : dictionary containing the hidden states of all peds
     '''
     tensor = np.zeros((args.grid_size, args.grid_size, args.rnn_size))
-    
+
     for m in range(args.grid_size):
         for n in range(args.grid_size):
             listOfPeds = grid[m + n*args.grid_size]
@@ -121,6 +121,7 @@ def getSocialTensor(grid, states, args):
                 hiddenStateSum += states[x]
             tensor[m, n, :] = hiddenStateSum
     return tensor
+
 
 def train(args):
     data_loader = SocialDataLoader(args.batch_size, args.seq_length, args.neighborhood_size, args.grid_size, forcePreProcess=True)
@@ -144,14 +145,14 @@ def train(args):
             for b in range(data_loader.num_batches):
                 start = time.time()
                 x, y, d = data_loader.next_batch()
-                
+
                 # x, y are input and target data which are lists containing numpy arrays of size seq_length x maxNumPeds x 3
                 # xp, yp are lists containing lists of length seq_length with each element containing the number of peds in that frame
                 # d is the dataset index from which this batch is generated (used to differentiate between datasets)
-                
+
                 loss_batch = 0
                 counter = 0
-                
+
                 for batch in range(data_loader.batch_size):
                     # In each batch of seq_length frames
                     x_batch, y_batch, d_batch = x[batch], y[batch], d[batch]
@@ -166,7 +167,7 @@ def train(args):
                         # Initialise the LSTM corresponding to each ped. Store the initial state in the data structure
                         states[ped] = np.zeros((1, args.rnn_size))
                         lstm_states[ped] = sess.run(model.initial_state)
-                        
+
                     for seq in range(data_loader.seq_length):
                         # In each frame
                         x_batch_seq, y_batch_seq,  d_batch_seq = x_batch[seq, :, :], y_batch[seq, :, :], d_batch
@@ -175,22 +176,21 @@ def train(args):
                         x_batch_seq = x_batch_seq[x_batch_seq[:, 0] != 0, :]
                         y_batch_seq = y_batch_seq[y_batch_seq[:, 0] != 0, :]
 
-                        
                         grid_batch_seq = getSocialGrid(x_batch_seq, d_batch_seq, args)
 
                         peds_batch_seq = x_batch_seq[:, 0].tolist()
 
                         for ped in peds_batch_seq:
-                            
-                            if np.all(y_batch_seq[:, 0]!=ped):
+
+                            if np.all(y_batch_seq[:, 0] != ped):
                                 continue
-                            
-                            x_ped_batch_seq = x_batch_seq[x_batch_seq[:,0]==ped, [1, 2]]
-                            y_ped_batch_seq = y_batch_seq[y_batch_seq[:,0]==ped, [1, 2]]
+
+                            x_ped_batch_seq = x_batch_seq[x_batch_seq[:, 0] == ped, [1, 2]]
+                            y_ped_batch_seq = y_batch_seq[y_batch_seq[:, 0] == ped, [1, 2]]
                             grid_ped_batch_seq = grid_batch_seq[ped]
 
                             # NOTE: need to add a non-linear ReLU layer before computing the tensor
-                            social_tensor = getSocialTensor(grid_ped_batch_seq, states, args)                                                    
+                            social_tensor = getSocialTensor(grid_ped_batch_seq, states, args)
 
                             # reshape input data
                             x_ped_batch_seq = np.reshape(x_ped_batch_seq, (1, 2))
@@ -198,15 +198,15 @@ def train(args):
 
                             # reshape tensor data
                             social_tensor = np.reshape(social_tensor, (1, args.grid_size*args.grid_size*args.rnn_size))
-                            
+
                             feed = {model.input_data: x_ped_batch_seq, model.target_data: y_ped_batch_seq, model.initial_state: lstm_states[ped], model.social_tensor: social_tensor}
                             train_loss, states[ped], lstm_states[ped], _ = sess.run([model.cost, model.output, model.final_state, model.train_op], feed)
-                            
+
                             loss_batch += train_loss
                             counter += 1
-                            
+
                 end = time.time()
-                
+
                 # loss_batch = loss_batch/(data_loader.batch_size * data_loader.seq_length)
                 if counter != 0:
                     loss_batch = loss_batch / counter
@@ -214,7 +214,6 @@ def train(args):
                     print "Never trained. Peds existed only for one frame"
                     loss_batch = 0
 
-                
                 print(
                     "{}/{} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}"
                     .format(
@@ -227,5 +226,5 @@ def train(args):
                     saver.save(sess, checkpoint_path, global_step=e * data_loader.num_batches + b)
                     print("model saved to {}".format(checkpoint_path))
 
-if __name__== '__main__':
+if __name__ == '__main__':
     main()
