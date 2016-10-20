@@ -20,12 +20,13 @@ class Model():
         Params:
         args: Contains arguments required for the Model creation
         '''
-        # Store the arguments
-        self.args = args
 
         if infer:
             args.batch_size = 1
             args.seq_length = 1
+
+        # Store the arguments
+        self.args = args
 
         # args.rnn_size contains the dimension of the hidden state of the LSTM
         cell = rnn_cell.BasicLSTMCell(args.rnn_size, state_is_tuple=False)
