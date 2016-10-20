@@ -172,8 +172,8 @@ def train(args):
                         x_batch_seq, y_batch_seq,  d_batch_seq = x_batch[seq, :, :], y_batch[seq, :, :], d_batch
 
                         # Extract only the data of pedestrians in current frame
-                        x_batch_seq = x_batch_seq[x_batch_seq[:, 0]!=0, :]
-                        y_batch_seq = y_batch_seq[y_batch_seq[:, 0]!=0, :]
+                        x_batch_seq = x_batch_seq[x_batch_seq[:, 0] != 0, :]
+                        y_batch_seq = y_batch_seq[y_batch_seq[:, 0] != 0, :]
 
                         
                         grid_batch_seq = getSocialGrid(x_batch_seq, d_batch_seq, args)
