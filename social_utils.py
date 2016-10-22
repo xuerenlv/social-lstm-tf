@@ -25,7 +25,7 @@ class SocialDataLoader():
         self.data_dir = './data'
 
         # Maximum number of peds in a single frame
-        self.maxNumPeds = 30
+        self.maxNumPeds = 37
 
         self.batch_size = batch_size
         self.seq_length = seq_length
@@ -89,14 +89,13 @@ class SocialDataLoader():
 
             curr_frame = 0
             for frame in frameList:
-
                 # Extract all pedestrians in current frame
                 pedsInFrame = data[:, data[0, :] == frame]
 
                 # Extract peds list
                 pedsList = pedsInFrame[1, :].tolist()
 
-                if len(pedsList) > 30:
+                if len(pedsList) > 37:
                     print len(pedsList)
 
                 # Add number of peds in the current frame to the stored data
