@@ -8,14 +8,13 @@ import numpy as np
 # sequence.
 class SocialDataLoader():
 
-    def __init__(self, batch_size=50, seq_length=5, neighborhood_size=100, grid_size=2, forcePreProcess=False):
+    def __init__(self, batch_size=50, seq_length=5, forcePreProcess=False):
         '''
         Initialiser function for the SocialDataLoader class
         params:
         batch_size : Size of the mini-batch
-        seq_length : RNN sequence length
-        neighborhood_size : Size of neighborhood to be considered
         grid_size : Size of the social grid constructed
+        forcePreProcess : Flag to forcefully preprocess the data again from csv files
         '''
         # List of data directories where raw data resides
         # self.data_dirs = ['./data/eth/univ', './data/eth/hotel',
@@ -36,8 +35,6 @@ class SocialDataLoader():
         # Store the arguments
         self.batch_size = batch_size
         self.seq_length = seq_length
-        self.neighborhood_size = neighborhood_size
-        self.grid_size = grid_size
 
         # Define the path in which the process data would be stored
         data_file = os.path.join(self.data_dir, "social-trajectories.cpkl")
