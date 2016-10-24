@@ -11,7 +11,7 @@ import numpy as np
 from tensorflow.python.ops import rnn_cell
 
 
-# TODO: For now just implementing vanilla LSTM without the social layer
+# The Vanilla LSTM model
 class Model():
 
     def __init__(self, args, infer=False):
@@ -21,20 +21,24 @@ class Model():
         args: Contains arguments required for the Model creation
         '''
 
+        # If sampling new trajectories, then infer mode
         if infer:
+            # Infer one position at a time
             args.batch_size = 1
             args.seq_length = 1
 
         # Store the arguments
         self.args = args
 
+        # Initialize a BasicLSTMCell recurrent unit
         # args.rnn_size contains the dimension of the hidden state of the LSTM
         cell = rnn_cell.BasicLSTMCell(args.rnn_size, state_is_tuple=False)
 
-        # Multi-layer RNN construction
+        # Multi-layer RNN construction, if more than one layer
         cell = rnn_cell.MultiRNNCell([cell] * args.num_layers, state_is_tuple=False)
 
         # TODO: (improve) Dropout layer can be added here
+        # Store the recurrent unit
         self.cell = cell
 
         # TODO: (resolve) Do we need to use a fixed seq_length?
@@ -52,7 +56,7 @@ class Model():
         # Output size is the set of parameters (mu, sigma, corr)
         output_size = 5  # 2 mu, 2 sigma and 1 corr
 
-        # Embedding
+        # Embedding for the spatial coordinates
         with tf.variable_scope("coordinate_embedding"):
             #  The spatial embedding using a ReLU layer
             #  Embed the 2D coordinates into embedding_size dimensions
@@ -65,14 +69,12 @@ class Model():
             output_w = tf.get_variable("output_w", [args.rnn_size, output_size], initializer=tf.truncated_normal_initializer(stddev=0.01), trainable=True)
             output_b = tf.get_variable("output_b", [output_size], initializer=tf.constant_initializer(0.01), trainable=True)
 
-        self.output_b = output_b
-        self.output_w = output_w
-
         # Split inputs according to sequences.
         inputs = tf.split(1, args.seq_length, self.input_data)
         # Get a list of 2D tensors. Each of size numPoints x 2
         inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
 
+        # Embed the input spatial points into the embedding space
         embedded_inputs = []
         for x in inputs:
             # Each x is a 2D tensor of size numPoints x 2
@@ -80,28 +82,49 @@ class Model():
             embedded_x = tf.nn.relu(tf.add(tf.matmul(x, embedding_w), embedding_b))
             embedded_inputs.append(embedded_x)
 
+        # Feed the embedded input data, the initial state of the LSTM cell, the recurrent unit to the seq2seq decoder
         outputs, last_state = tf.nn.seq2seq.rnn_decoder(embedded_inputs, self.initial_state, cell, loop_function=None, scope="rnnlm")
 
+        # Concatenate the outputs from the RNN decoder and reshape it to ?xargs.rnn_size
         output = tf.reshape(tf.concat(1, outputs), [-1, args.rnn_size])
 
-        # Apply the linear layer
+        # Apply the output linear layer
         output = tf.nn.xw_plus_b(output, output_w, output_b)
+        # Store the final LSTM cell state after the input data has been feeded
         self.final_state = last_state
 
         # reshape target data so that it aligns with predictions
         flat_target_data = tf.reshape(self.target_data, [-1, 2])
+        # Extract the x-coordinates and y-coordinates from the target data
         [x_data, y_data] = tf.split(1, 2, flat_target_data)
 
         def tf_2d_normal(x, y, mux, muy, sx, sy, rho):
+            '''
+            Function that implements the PDF of a 2D normal distribution
+            params:
+            x : input x points
+            y : input y points
+            mux : mean of the distribution in x
+            muy : mean of the distribution in y
+            sx : std dev of the distribution in x
+            sy : std dev of the distribution in y
+            rho : Correlation factor of the distribution
+            '''
             # eq 3 in the paper
             # and eq 24 & 25 in Graves (2013)
+            # Calculate (x - mux) and (y-muy)
             normx = tf.sub(x, mux)
             normy = tf.sub(y, muy)
+            # Calculate sx*sy
             sxsy = tf.mul(sx, sy)
+            # Calculate the exponential factor
             z = tf.square(tf.div(normx, sx)) + tf.square(tf.div(normy, sy)) - 2*tf.div(tf.mul(rho, tf.mul(normx, normy)), sxsy)
             negRho = 1 - tf.square(rho)
+            # Numerator
             result = tf.exp(tf.div(-z, 2*negRho))
+            # Normalization constant
             denom = 2 * np.pi * tf.mul(sxsy, tf.sqrt(negRho))
+            # Final PDF calculation
             result = tf.div(result, denom)
             self.result = result
             return result
@@ -110,15 +133,32 @@ class Model():
         # is that it is evaluated over all time steps in the latter whereas it is
         # done from t_obs+1 to t_pred in the former
         def get_lossfunc(z_mux, z_muy, z_sx, z_sy, z_corr, x_data, y_data):
+            '''
+            Function to calculate given a 2D distribution over x and y, and target data
+            of observed x and y points
+            params:
+            z_mux : mean of the distribution in x
+            z_muy : mean of the distribution in y
+            z_sx : std dev of the distribution in x
+            z_sy : std dev of the distribution in y
+            z_rho : Correlation factor of the distribution
+            x_data : target x points
+            y_data : target y points
+            '''
+            # Calculate the PDF of the data w.r.t to the distribution
             result0 = tf_2d_normal(x_data, y_data, z_mux, z_muy, z_sx, z_sy, z_corr)
 
-            epsilon = 1e-20  # For numerical stability purposes
+            # For numerical stability purposes
+            epsilon = 1e-20
+
             # TODO: (resolve) I don't think we need this as we don't have the inner
             # summation
             # result1 = tf.reduce_sum(result0, 1, keep_dims=True)
+            # Apply the log operation
             result1 = -tf.log(tf.maximum(result0, epsilon))  # Numerical stability
 
             # TODO: For now, implementing loss func over all time-steps
+            # Sum up all log probabilities for each data point
             return tf.reduce_sum(result1)
 
         def get_coef(output):
@@ -129,18 +169,23 @@ class Model():
             # -1 and 1
 
             z = output
+            # Split the output into 5 parts corresponding to means, std devs and corr
             z_mux, z_muy, z_sx, z_sy, z_corr = tf.split(1, 5, z)
 
+            # The output must be exponentiated for the std devs
             z_sx = tf.exp(z_sx)
             z_sy = tf.exp(z_sy)
+            # Tanh applied to keep it in the range [-1, 1]
             z_corr = tf.tanh(z_corr)
 
             return [z_mux, z_muy, z_sx, z_sy, z_corr]
 
         # Extract the coef from the output of the linear layer
         [o_mux, o_muy, o_sx, o_sy, o_corr] = get_coef(output)
+        # Store the output from the model
         self.output = output
 
+        # Store the predicted outputs
         self.mux = o_mux
         self.muy = o_muy
         self.sx = o_sx
@@ -158,11 +203,14 @@ class Model():
 
         # TODO: (resolve) We are clipping the gradients as is usually done in LSTM
         # implementations. Social LSTM paper doesn't mention about this at all
+        # Calculate gradients of the cost w.r.t all the trainable variables
         self.gradients = tf.gradients(self.cost, tvars)
+        # Clip the gradients if they are larger than the value given in args
         grads, _ = tf.clip_by_global_norm(self.gradients, args.grad_clip)
 
         # NOTE: Using RMSprop as suggested by Social LSTM instead of Adam as Graves(2013) does
         # optimizer = tf.train.AdamOptimizer(self.lr)
+        # initialize the optimizer with teh given learning rate
         optimizer = tf.train.RMSPropOptimizer(self.lr)
 
         # Train operator
@@ -178,6 +226,15 @@ class Model():
         num: Number of time-steps into the future to be predicted
         '''
         def sample_gaussian_2d(mux, muy, sx, sy, rho):
+            '''
+            Function to sample a point from a given 2D normal distribution
+            params:
+            mux : mean of the distribution in x
+            muy : mean of the distribution in y
+            sx : std dev of the distribution in x
+            sy : std dev of the distribution in y
+            rho : Correlation factor of the distribution
+            '''
             # Extract mean
             mean = [mux, muy]
             # Extract covariance matrix
@@ -202,8 +259,8 @@ class Model():
             [state] = sess.run([self.final_state], feed)
 
         ret = traj
-        # Last position in the observed trajectory
 
+        # Last position in the observed trajectory
         last_pos = traj[-1]
 
         # Construct the input data tensor for the last point
@@ -221,7 +278,6 @@ class Model():
             # Sample the next point from the distribution
             next_x, next_y = sample_gaussian_2d(o_mux[0][0], o_muy[0][0], o_sx[0][0], o_sy[0][0], o_corr[0][0])
             # Append the new point to the trajectory
-            # ret.append((next_x, next_y))
             ret = np.vstack((ret, [next_x, next_y]))
 
             # Set the current sampled position as the last observed position
