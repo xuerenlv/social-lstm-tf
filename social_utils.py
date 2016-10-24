@@ -3,6 +3,9 @@ import pickle
 import numpy as np
 
 
+# The data loader class that loads data from the datasets considering
+# each frame as a datapoint and a sequence of consecutive frames as the
+# sequence.
 class SocialDataLoader():
 
     def __init__(self, batch_size=50, seq_length=5, neighborhood_size=100, grid_size=2, forcePreProcess=False):
@@ -15,30 +18,40 @@ class SocialDataLoader():
         grid_size : Size of the social grid constructed
         '''
         # List of data directories where raw data resides
-        self.data_dirs = ['./data/eth/univ', './data/eth/hotel',
-                          './data/ucy/zara/zara01', './data/ucy/zara/zara02',
-                          './data/ucy/univ']
+        # self.data_dirs = ['./data/eth/univ', './data/eth/hotel',
+        #                  './data/ucy/zara/zara01', './data/ucy/zara/zara02',
+        #                  './data/ucy/univ']
+        # self.data_dirs = ['./data/eth/univ', './data/eth/hotel']
+        self.data_dirs = ['./data/eth/univ']
 
+        # Number of datasets
         self.numDatasets = len(self.data_dirs)
 
         # Data directory where the pre-processed pickle file resides
         self.data_dir = './data'
 
-        # Maximum number of peds in a single frame
+        # Maximum number of peds in a single frame (Number obtained by checking the datasets)
         self.maxNumPeds = 37
 
+        # Store the arguments
         self.batch_size = batch_size
         self.seq_length = seq_length
         self.neighborhood_size = neighborhood_size
         self.grid_size = grid_size
 
+        # Define the path in which the process data would be stored
         data_file = os.path.join(self.data_dir, "social-trajectories.cpkl")
 
+        # If the file doesn't exist or forcePreProcess is true
         if not(os.path.exists(data_file)) or forcePreProcess:
             print("Creating pre-processed data from raw data")
+            # Preprocess the data from the csv files of the datasets
+            # Note that this data is processed in frames
             self.frame_preprocess(self.data_dirs, data_file)
 
+        # Load the processed data from the pickle file
         self.load_preprocessed(data_file)
+        # Reset all the data pointers of the dataloader object
         self.reset_batch_pointer()
 
     def frame_preprocess(self, data_dirs, data_file):
@@ -50,43 +63,41 @@ class SocialDataLoader():
         data_file : The file into which all the pre-processed data needs to be stored
         '''
 
-        # all_frame_data would be a list of dictionaries with mapping from each frame to
-        # a list of all peds with their current location and their social grids,
-        # for each dataset
-
+        # all_frame_data would be a list of numpy arrays corresponding to each dataset
+        # Each numpy array would be of size (numFrames, maxNumPeds, 3) where each pedestrian's
+        # pedId, x, y , in each frame is stored
         all_frame_data = []
+        # frameList_data would be a list of lists corresponding to each dataset
+        # Each list would contain the frameIds of all the frames in the dataset
         frameList_data = []
+        # numPeds_data would be a list of lists corresponding to each dataset
+        # Ech list would contain the number of pedestrians in each frame in the dataset
         numPeds_data = []
+        # Index of the current dataset
         dataset_index = 0
 
+        # For each dataset
         for directory in data_dirs:
 
-            # all_frame_data.append({})
-
+            # Define path of the csv file of the current dataset
             file_path = os.path.join(directory, 'pixel_pos.csv')
 
+            # Load the data from the csv file
             data = np.genfromtxt(file_path, delimiter=',')
 
+            # Frame IDs of the frames in the current dataset
             frameList = np.unique(data[0, :]).tolist()
+            # Number of frames
             numFrames = len(frameList)
 
+            # Add the list of frameIDs to the frameList_data
             frameList_data.append(frameList)
+            # Initialize the list of numPeds for the current dataset
             numPeds_data.append([])
+            # Initialize the numpy array for the current dataset
             all_frame_data.append(np.zeros((numFrames, self.maxNumPeds, 3)))
 
-            # bounds to calculate the normalized neighborhood size
-            if dataset_index == 0:
-                # ETH univ dataset
-                width = 640.
-                height = 480.
-            else:
-                # Other datasets
-                width = 720.
-                height = 576.
-
-            width_bound = self.neighborhood_size/width
-            height_bound = self.neighborhood_size/height
-
+            # index to maintain the current frame
             curr_frame = 0
             for frame in frameList:
                 # Extract all pedestrians in current frame
@@ -95,51 +106,33 @@ class SocialDataLoader():
                 # Extract peds list
                 pedsList = pedsInFrame[1, :].tolist()
 
+                # Helper print statement to figure out the maximum number of peds in any frame in any dataset
                 if len(pedsList) > 37:
                     print len(pedsList)
 
                 # Add number of peds in the current frame to the stored data
                 numPeds_data[dataset_index].append(len(pedsList))
 
-                pedsWithGrid = []
+                # Initialize the row of the numpy array
+                pedsWithPos = []
 
+                # For each ped in the current frame
                 for ped in pedsList:
-                    # For each ped. Exclude the ped from others
-                    pedsInFrameBut = pedsInFrame[:, pedsInFrame[1, :] != ped]
+                    # Extract their x and y positions
                     current_x = pedsInFrame[3, pedsInFrame[1, :] == ped][0]
                     current_y = pedsInFrame[2, pedsInFrame[1, :] == ped][0]
 
-                    # Get lower and upper bounds for the grid
-                    width_low = current_x - width_bound/2.
-                    height_low = current_y - height_bound/2.
-                    width_high = current_x + width_bound/2.
-                    height_high = current_y + height_bound/2.
+                    # Add their pedID, x, y to the row of the numpy array
+                    pedsWithPos.append([ped, current_x, current_y])
 
-                    # Get the pedestrians who are in the surrounding
-                    pedsInFrameSurr = pedsInFrameBut[:, pedsInFrameBut[3, :] <= width_high]
-                    pedsInFrameSurr = pedsInFrameSurr[:, pedsInFrameSurr[3, :] >= width_low]
-                    pedsInFrameSurr = pedsInFrameSurr[:, pedsInFrameSurr[2, :] <= height_high]
-                    pedsInFrameSurr = pedsInFrameSurr[:, pedsInFrameSurr[2, :] >= height_low]
-
-                    cell_x = np.floor(((pedsInFrameSurr[3, :] - width_low)/(width_bound)) * self.grid_size)
-                    cell_y = np.floor(((pedsInFrameSurr[2, :] - height_low)/(height_bound)) * self.grid_size)
-
-                    social_grid = [[] for i in range(self.grid_size*self.grid_size)]
-                    for m in range(self.grid_size):
-                        for n in range(self.grid_size):
-                            # peds in (m,n) grid cell
-                            ind = np.all([cell_x == m, cell_y == n], axis=0)
-                            pedsInMN = pedsInFrameSurr[1, ind]
-                            social_grid[m + n*self.grid_size] = map(int, pedsInMN.tolist())
-
-                    # pedsWithGrid.append([ped, current_x, current_y, social_grid])
-                    pedsWithGrid.append([ped, current_x, current_y])
-
-                # all_frame_data[dataset_index][frame] = pedsWithGrid
-                all_frame_data[dataset_index][curr_frame, 0:len(pedsList), :] = np.array(pedsWithGrid)
+                # Add the details of all the peds in the current frame to all_frame_data
+                all_frame_data[dataset_index][curr_frame, 0:len(pedsList), :] = np.array(pedsWithPos)
+                # Increment the frame index
                 curr_frame += 1
+            # Increment the dataset index
             dataset_index += 1
 
+        # Save the tuple (all_frame_data, frameList_data, numPeds_data) in the pickle file
         f = open(data_file, "wb")
         pickle.dump((all_frame_data, frameList_data, numPeds_data), f, protocol=2)
         f.close()
@@ -155,44 +148,55 @@ class SocialDataLoader():
         self.raw_data = pickle.load(f)
         f.close()
 
+        # Get all the data from the pickle file
         self.data = self.raw_data[0]
         self.frameList = self.raw_data[1]
         self.numPedsList = self.raw_data[2]
         counter = 0
 
+        # For each dataset
         for dataset in range(len(self.data)):
             # get the frame data for the current dataset
             all_frame_data = self.data[dataset]
             print len(all_frame_data)
+            # Increment the counter with the number of sequences in the current dataset
             counter += int(len(all_frame_data) / (self.seq_length+2))
 
+        # Calculate the number of batches
         self.num_batches = int(counter/self.batch_size)
 
     def next_batch(self):
         '''
         Function to get the next batch of points
         '''
-        x_batch = []  # source data
-        y_batch = []  # target data
-        # x_numPeds_batch = []  # source numPeds data
-        # y_numPeds_batch = []  # target numPeds data
+        # source data
+        x_batch = []
+        # target data
+        y_batch = []
+        # dataset data
         d = []
+        # Iteration index
         i = 0
         while i < self.batch_size:
+            # Extract the frame data of the current dataset
             frame_data = self.data[self.dataset_pointer]
-            # frames = self.frameList[self.dataset_pointer]
-            # numPeds = self.numPedsList[self.dataset_pointer]
+            # Get the frame pointer for the current dataset
             idx = self.frame_pointer
+            # While there is still seq_length number of frames left in the current dataset
             if idx + self.seq_length < frame_data.shape[0]:
+                # Extract frame data from idx until seq_length
                 x_batch.append(np.copy(frame_data[idx:idx+self.seq_length, :]))
                 y_batch.append(np.copy(frame_data[idx+1:idx+self.seq_length+1, :]))
-                # x_numPeds_batch.append(list(numPeds[idx:idx+self.seq_length]))
-                # y_numPeds_batch.append(list(numPeds[idx+1:idx+self.seq_length+1]))
+
+                # Store the current dataset index
                 d.append(self.dataset_pointer)
+                # Increment the frame pointer for the current dataset
                 self.frame_pointer += self.seq_length
+                # Increment the sequence index (iteration index)
                 i += 1
             else:
                 # Not enough frames left
+                # Increment the dataset pointer and set the frame_pointer to zero
                 self.tick_batch_pointer()
 
         return x_batch, y_batch, d
@@ -201,137 +205,18 @@ class SocialDataLoader():
         '''
         Advance the dataset pointer
         '''
+        # Go to the next dataset
         self.dataset_pointer += 1
+        # Set the frame pointer to zero for the current dataset
         self.frame_pointer = 0
+        # If all datasets are done, then go to the first one again
         if self.dataset_pointer >= len(self.data):
             self.dataset_pointer = 0
 
     def reset_batch_pointer(self):
+        '''
+        Reset all pointers
+        '''
+        # Go to the first frame of the first dataset
         self.dataset_pointer = 0
         self.frame_pointer = 0
-
-    def preprocess(self, data_dirs, data_file):
-        '''
-        Function that will pre-process the pixel_pos.csv files of each dataset
-        into data with occupancy grid that can be used
-        params:
-        data_dirs : List of directories where raw data resides
-        data_file : The file into which all the pre-processed data needs to be stored
-        '''
-        # all_ped_data would be a dictionary with mapping from each ped to their
-        # social trajectories given by list of lists where each element of the
-        # to list is fId, x, y, list of peds in (1,1) grid cell, ....., list of peds
-        # in (m, m) grid cell. So each element is a list of size m^2 + 3
-
-        all_ped_data = {}
-        dataset_indices = []
-        current_ped = 0
-        dataset_index = 0
-        for directory in data_dirs:
-
-            file_path = os.path.join(directory, 'pixel_pos.csv')
-
-            # Data is a 4 x numTrajPoints matrix
-            # where each column is a (frameId, pedId, y, x) vector
-            data = np.genfromtxt(file_path, delimiter=',')
-
-            # Get the number of pedestrians in the current dataset
-            numPeds = np.size(np.unique(data[1, :]))
-
-            # bounds to calculate the normalized neighborhood size
-            if dataset_index == 0:
-                # ETH univ dataset
-                width = 640.
-                height = 480.
-            else:
-                # Other datasets
-                width = 720.
-                height = 576.
-
-            width_bound = self.neighborhood_size/width
-            height_bound = self.neighborhood_size/height
-
-            for ped in range(1, numPeds+1):
-                # Extract trajectory of the current ped
-                traj = data[:, data[1, :] == ped]
-                # Format it as (frameId, x, y)
-                traj = traj[[0, 3, 2], :]
-                # Convert the numpy matrix to list
-                traj = traj.T.tolist()
-
-                for point in traj:
-                    # For each point in the trajectory
-                    # Extract pedestrians in the same frame
-                    current_frame = point[0]
-                    current_x = point[1]
-                    current_y = point[2]
-
-                    # Get lower and upper bounds for the grid
-                    width_low = current_x - width_bound/2.
-                    height_low = current_y - height_bound/2.
-                    width_high = current_x + width_bound/2.
-                    height_high = current_y + height_bound/2.
-
-                    # pedsInFrame is a matrix with (fId, pedId, y, x) of
-                    # all peds in the current frame i.e. fId = current_frame
-                    # Remove the current ped
-                    pedsInFrame = data[:, data[0, :] == current_frame]
-                    pedsInFrame = pedsInFrame[:, pedsInFrame[1, :] != ped]
-
-                    # Get the pedestrians who are in the surrounding
-                    pedsInFrameSurr = pedsInFrame[:, pedsInFrame[3, :] <= width_high]
-                    pedsInFrameSurr = pedsInFrameSurr[:, pedsInFrameSurr[3, :] >= width_low]
-                    pedsInFrameSurr = pedsInFrameSurr[:, pedsInFrameSurr[2, :] <= height_high]
-                    pedsInFrameSurr = pedsInFrameSurr[:, pedsInFrameSurr[2, :] >= height_low]
-
-                    # Surrounding peds inside the social grid are now in pedsInFrameSurr
-                    # Discretize the grid and get occupancy
-                    cell_x = np.floor(((pedsInFrameSurr[3, :] - width_low)/(width_bound)) * self.grid_size)
-                    cell_y = np.floor(((pedsInFrameSurr[2, :] - height_low)/(height_bound)) * self.grid_size)
-
-                    social_grid = [[] for i in range(self.grid_size*self.grid_size)]
-                    for m in range(self.grid_size):
-                        for n in range(self.grid_size):
-                            # peds in (m,n) grid cell
-                            ind = np.all([cell_x == m, cell_y == n], axis=0)
-                            pedsInMN = pedsInFrameSurr[1, ind] + current_ped
-                            social_grid[m + n*self.grid_size] = map(int, pedsInMN.tolist())
-                    point.append(social_grid)
-                all_ped_data[current_ped + ped] = traj
-
-            dataset_indices.append(current_ped + numPeds)
-            current_ped += numPeds
-            dataset_index += 1
-
-        complete_data = (all_ped_data, dataset_indices)
-        f = open(data_file, "wb")
-        pickle.dump(complete_data, f, protocol=2)
-        f.close()
-
-    def next_batch_old(self):
-        '''
-        Function to get the next batch of data
-        '''
-        x_batch = []
-        y_batch = []
-
-        frame_data = self.data[self.dataset_pointer]
-        frames = self.frameList[self.dataset_pointer]
-
-        for i in range(self.batch_size):
-            current_x_seq = []
-            current_y_seq = []
-            idx = self.frame_pointer
-            if idx + self.seq_length < len(frame_data):
-                for offset in range(self.seq_length):
-                    current_x_seq.append(frame_data[frames[idx+offset]])
-                    current_y_seq.append(frame_data[frames[idx+offset+1]])
-                self.frame_pointer += self.seq_length
-            else:
-                # Not enough frames left
-                self.tick_batch_pointer()
-
-            x_batch.append(current_x_seq)
-            y_batch.append(current_y_seq)
-
-        return x_batch, y_batch
