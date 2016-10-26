@@ -113,6 +113,7 @@ def main():
     # For each batch
     for b in range(data_loader.num_batches):
         # Get the source, target and dataset data for the next batch
+        lstm_state = sess.run(model.initial_state)
         x, y, d = data_loader.next_batch()
 
         # Batch size is 1
@@ -175,9 +176,11 @@ def main():
 
                 # Feed the source, initial LSTM cell state and the social tensor to the model
                 feed = {model.input_data: x_ped_batch_seq, model.initial_state: lstm_states[ped], model.social_tensor: social_tensor}
+                # feed = {model.input_data: x_ped_batch_seq, model.initial_state: lstm_state, model.social_tensor: social_tensor}
 
                 # Fetch the output and the final LSTM cell state
                 states[ped], lstm_states[ped] = sess.run([model.output, model.final_state], feed)
+                # states[ped], lstm_state = sess.run([model.output, model.final_state], feed)
 
         # Store last positions of all the observed pedestrians
         last_obs_frame = sample_args.obs_length-1
@@ -220,8 +223,11 @@ def main():
 
                 # Feed the model the source data, initial LSTM cell state and the social tensor
                 feed = {model.input_data: x_ped_batch_seq, model.initial_state: lstm_states[ped], model.social_tensor: social_tensor}
+                # feed = {model.input_data: x_ped_batch_seq, model.initial_state: lstm_state, model.social_tensor: social_tensor}
+
                 # Fetch the output, final LSTM state, (mu, sigma, corr)
                 states[ped], lstm_states[ped], o_mux, o_muy, o_sx, o_sy, o_corr = sess.run([model.output, model.final_state, model.mux, model.muy, model.sx, model.sy, model.corr], feed)
+                # states[ped], lstm_state, o_mux, o_muy, o_sx, o_sy, o_corr = sess.run([model.output, model.final_state, model.mux, model.muy, model.sx, model.sy, model.corr], feed)
 
                 # Sample the next position for the current ped given the parameters of the 2D distribution
                 next_x, next_y = sample_gaussian_2d(o_mux[0][0], o_muy[0][0], o_sx[0][0], o_sy[0][0], o_corr[0][0])

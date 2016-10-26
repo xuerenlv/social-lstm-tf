@@ -180,6 +180,8 @@ def train(args):
             sess.run(tf.assign(model.lr, args.learning_rate * (args.decay_rate ** e)))
             # Reset the data pointers in the data_loader
             data_loader.reset_batch_pointer()
+            # Initial LSTM state
+            lstm_state = sess.run(model.initial_state)
 
             # For each batch
             for b in range(data_loader.num_batches):
@@ -263,8 +265,10 @@ def train(args):
 
                             # Feed the source, target, the LSTM cell state and the social tensor to the model
                             feed = {model.input_data: x_ped_batch_seq, model.target_data: y_ped_batch_seq, model.initial_state: lstm_states[ped], model.social_tensor: social_tensor}
+                            # feed = {model.input_data: x_ped_batch_seq, model.target_data: y_ped_batch_seq, model.initial_state: lstm_state, model.social_tensor: social_tensor}
                             # Fetch the cost for this point, output of the LSTM, the final cell state and the train operator
                             train_loss, states[ped], lstm_states[ped], _ = sess.run([model.cost, model.output, model.final_state, model.train_op], feed)
+                            # train_loss, states[ped], lstm_state, _ = sess.run([model.cost, model.output, model.final_state, model.train_op], feed)
 
                             # Increment the batch loss with the loss incurred
                             loss_batch += train_loss
