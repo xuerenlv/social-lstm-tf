@@ -10,6 +10,7 @@ import tensorflow as tf
 import numpy as np
 from tensorflow.python.ops import rnn_cell
 from grid import getSequenceGridMask
+import ipdb
 
 
 class SocialModel():
@@ -267,22 +268,15 @@ class SocialModel():
 
         # For numerical stability purposes
         epsilon = 1e-20
-        # TODO: (resolve) I don't think we need this as we don't have the inner
-        # summation
-        # result1 = tf.reduce_sum(result0, 1, keep_dims=True)
+
         # Apply the log operation
         result1 = -tf.log(tf.maximum(result0, epsilon))  # Numerical stability
 
-        # TODO: For now, implementing loss func over all time-steps
         # Sum up all log probabilities for each data point
         return tf.reduce_sum(result1)
 
     def get_coef(self, output):
         # eq 20 -> 22 of Graves (2013)
-        # TODO : (resolve) Does Social LSTM paper do this as well?
-        # the paper says otherwise but this is essential as we cannot
-        # have negative standard deviation and correlation needs to be between
-        # -1 and 1
 
         z = output
         # Split the output into 5 parts corresponding to means, std devs and corr
@@ -360,7 +354,7 @@ class SocialModel():
 
             feed = {self.input_data: data, self.LSTM_states: states, self.grid_data: grid_data, self.target_data: target_data}
 
-            [states] = sess.run([self.final_states], feed)
+            [states, cost] = sess.run([self.final_states, self.cost], feed)
 
         ret = traj
 
@@ -368,6 +362,7 @@ class SocialModel():
 
         prev_data = np.reshape(last_frame, (1, self.maxNumPeds, 3))
         prev_grid_data = np.reshape(grid[-1], (1, self.maxNumPeds, self.maxNumPeds, self.grid_size*self.grid_size))
+
         # Prediction
         for t in range(num):
             feed = {self.input_data: prev_data, self.LSTM_states: states, self.grid_data: prev_grid_data}
@@ -379,7 +374,10 @@ class SocialModel():
             for pedindex, pedoutput in enumerate(output):
                 # CHECK
                 [o_mux, o_muy, o_sx, o_sy, o_corr] = np.split(pedoutput[0], 5, 0)
-                next_x, next_y = self.sample_gaussian_2d(o_mux[0], o_muy[0], o_sx[0], o_sy[0], o_corr[0])
+                # STUPID BUG
+                mux, muy, sx, sy, corr = o_mux[0], o_muy[0], np.exp(o_sx[0]), np.exp(o_sy[0]), np.tanh(o_corr[0])
+                next_x, next_y = self.sample_gaussian_2d(mux, muy, sx, sy, corr)
+
                 newpos[0, pedindex, :] = [prev_data[0, pedindex, 0], next_x, next_y]
             ret = np.vstack((ret, newpos))
             prev_data = newpos
