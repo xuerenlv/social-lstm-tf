@@ -4,9 +4,11 @@ import argparse
 import os
 import time
 import pickle
+import ipdb
 
 from social_model import SocialModel
 from social_utils import SocialDataLoader
+from grid import getSequenceGridMask
 
 
 def main():
@@ -57,110 +59,15 @@ def main():
     # Size of the social grid parameter
     parser.add_argument('--grid_size', type=int, default=2,
                         help='Grid size of the social grid')
+    parser.add_argument('--maxNumPeds', type=int, default=40,
+                        help='Maximum Number of Pedestrians')
     args = parser.parse_args()
     train(args)
 
 
-def getSocialGrid(x, d, args):
-    '''
-    Function that computes the social grid for all peds in the current frame of dataset d
-    params:
-    x : numpy matrix of size numPeds x 3
-    d : dataset index
-    '''
-    # pedsWithGrid is a dictionary mapping pedIDs to their social grids in the current frame
-    pedsWithGrid = {}
-    # List of pedestrians
-    pedsList = x[:, 0].tolist()
-
-    # bounds to calculate the normalized neighborhood size
-    if d == 0:
-        # ETH univ dataset
-        width = 640.
-        height = 480.
-    else:
-        # Other datasets
-        width = 720.
-        height = 576.
-
-    # Bounds for the current dataset
-    width_bound = args.neighborhood_size/width
-    height_bound = args.neighborhood_size/height
-
-    # For each pedestrian in the current frame
-    for ped in pedsList:
-        # Extract data of all the "other" pedestrians in the current frame
-        pedsInFrameBut = x[x[:, 0] != ped, :]
-
-        # Extract the (x, y) of the current pedestrian
-        current_x = x[x[:, 0] == ped, 1]
-        current_y = x[x[:, 0] == ped, 2]
-
-        # Get lower and upper bounds for the grid
-        width_low = current_x - width_bound/2.
-        height_low = current_y - height_bound/2.
-        width_high = current_x + width_bound/2.
-        height_high = current_y + height_bound/2.
-
-        # Get the pedestrians who are in the surrounding
-        pedsInFrameSurr = pedsInFrameBut[pedsInFrameBut[:, 1] <= width_high, :]
-        pedsInFrameSurr = pedsInFrameSurr[pedsInFrameSurr[:, 1] >= width_low, :]
-        pedsInFrameSurr = pedsInFrameSurr[pedsInFrameSurr[:, 2] <= height_high, :]
-        pedsInFrameSurr = pedsInFrameSurr[pedsInFrameSurr[:, 2] >= height_low, :]
-
-        # Calculate the grid cells in which these pedestrians are present
-        cell_x = np.floor(((pedsInFrameSurr[:, 1] - width_low)/(width_bound)) * args.grid_size)
-        cell_y = np.floor(((pedsInFrameSurr[:, 2] - height_low)/(height_bound)) * args.grid_size)
-
-        # initialize an empty grid
-        grid = [[] for i in range(args.grid_size * args.grid_size)]
-        for m in range(args.grid_size):
-            for n in range(args.grid_size):
-                # peds in (m, n) grid cell
-                ind = np.all([cell_x == m, cell_y == n], axis=0)
-                # Get the pedIDs of all these pedestrians
-                pedsInMN = pedsInFrameSurr[ind, 0]
-                # Store the list of pedIDs in the grid cell
-                grid[m + n*args.grid_size] = map(int, pedsInMN.tolist())
-        # Save the list of lists in the dictionary
-        pedsWithGrid[ped] = grid
-
-    return pedsWithGrid
-
-
-def getSocialTensor(grid, states, args):
-    '''
-    Function to get social tensor from hidden states and the social grid
-    params:
-    grid : Social grid as a list of lists
-    states : dictionary containing the hidden states of all peds
-    '''
-    # Initialise a tensor of size (mxmxD) with zeros
-    tensor = np.zeros((args.grid_size, args.grid_size, args.rnn_size))
-
-    # For each grid cell in the social grid
-    for m in range(args.grid_size):
-        for n in range(args.grid_size):
-            # get the list of peds in the current cell
-            listOfPeds = grid[m + n*args.grid_size]
-            # Initialize the hiddenStateSum of size (1xD) with zeros
-            hiddenStateSum = np.zeros((1, args.rnn_size))
-            # For each ped in the grid cell
-            for x in listOfPeds:
-                # Sum up their hidden states (or outputs from the previous time-steps)
-                hiddenStateSum += states[x]
-            # Store the hiddenStateSum in the tensor
-            tensor[m, n, :] = hiddenStateSum
-    return tensor
-
-
 def train(args):
-    # Create a socialDataloader object to get batches of size batch_size with a sequence of frames of length seq_length
-    data_loader = SocialDataLoader(args.batch_size, args.seq_length, forcePreProcess=True)
+    data_loader = SocialDataLoader(args.batch_size, args.seq_length, args.maxNumPeds, forcePreProcess=True)
 
-    print "Number of mini-batches per epoch is", data_loader.num_batches
-
-    # Save the arguments in the social_config file
     with open(os.path.join('save', 'social_config.pkl'), 'wb') as f:
         pickle.dump(args, f)
 
@@ -174,14 +81,14 @@ def train(args):
         # Initialize a saver that saves all the variables in the graph
         saver = tf.train.Saver(tf.all_variables())
 
+        # summary_writer = tf.train.SummaryWriter('/tmp/lstm/logs', graph_def=sess.graph_def)
+
         # For each epoch
         for e in range(args.num_epochs):
             # Assign the learning rate value for this epoch
             sess.run(tf.assign(model.lr, args.learning_rate * (args.decay_rate ** e)))
             # Reset the data pointers in the data_loader
             data_loader.reset_batch_pointer()
-            # Initial LSTM state
-            lstm_state = sess.run(model.initial_state)
 
             # For each batch
             for b in range(data_loader.num_batches):
@@ -193,10 +100,8 @@ def train(args):
                 # d is the list of dataset indices from which each batch is generated (used to differentiate between datasets)
                 x, y, d = data_loader.next_batch()
 
-                # Variable to store the loss for this batch
+                # variable to store the loss for this batch
                 loss_batch = 0
-                # Counter
-                counter = 0
 
                 # For each sequence in the batch
                 for batch in range(data_loader.batch_size):
@@ -206,87 +111,22 @@ def train(args):
                     # d_batch would be a scalar identifying the dataset from which this sequence is extracted
                     x_batch, y_batch, d_batch = x[batch], y[batch], d[batch]
 
-                    # Get the list of pedIDs in this sequence
-                    pedIDs = np.unique(x_batch[:, :, 0])
-                    # Remove all pedIDs with value of zero (non-existing peds)
-                    pedIDs = pedIDs[pedIDs != 0]
+                    if d_batch == 0:
+                        dataset_data = [640, 480]
+                    else:
+                        dataset_data = [720, 576]
 
-                    # Create data structures to maintain all their hidden states
-                    # states maintains their hidden states (or outputs) after each frame
-                    # lstm_states maintains their cell states after each frame
-                    # Both are dictionaries mapping pedIDs to corresponding states
-                    states = {}
-                    lstm_states = {}
-                    # For each pedID in the current sequence of frames
-                    for ped in pedIDs:
-                        # Initialize a tensor of size 1 x D with zeros as the initial hidden state
-                        states[ped] = np.zeros((1, args.rnn_size))
-                        # Initialise the LSTM corresponding to each ped. Store the initial state in the data structure
-                        lstm_states[ped] = sess.run(model.initial_state)
+                    grid_batch = getSequenceGridMask(x_batch, dataset_data, args.neighborhood_size, args.grid_size)
 
-                    # For each frame in the sequence
-                    for seq in range(data_loader.seq_length):
-                        # Get the source, target data for all the pedestrians in the current frame
-                        x_batch_seq, y_batch_seq,  d_batch_seq = x_batch[seq, :, :], y_batch[seq, :, :], d_batch
+                    # Feed the source, target data
+                    feed = {model.input_data: x_batch, model.target_data: y_batch, model.grid_data: grid_batch}
 
-                        # Extract only the data of pedestrians in current frame (remove non-existing peds)
-                        x_batch_seq = x_batch_seq[x_batch_seq[:, 0] != 0, :]
-                        y_batch_seq = y_batch_seq[y_batch_seq[:, 0] != 0, :]
+                    train_loss, _ = sess.run([model.cost, model.train_op], feed)
 
-                        # Compute their social grids
-                        grid_batch_seq = getSocialGrid(x_batch_seq, d_batch_seq, args)
+                    loss_batch += train_loss
 
-                        # Get the list of peds (their pedIDs) in the current frame
-                        peds_batch_seq = x_batch_seq[:, 0].tolist()
-
-                        # For each ped in the current frame
-                        for ped in peds_batch_seq:
-
-                            # If the current ped is not present in the target data, continue
-                            if np.all(y_batch_seq[:, 0] != ped):
-                                continue
-
-                            # Extract the (x, y) position of the current ped in the current frame
-                            x_ped_batch_seq = x_batch_seq[x_batch_seq[:, 0] == ped, [1, 2]]
-                            y_ped_batch_seq = y_batch_seq[y_batch_seq[:, 0] == ped, [1, 2]]
-                            # Extract the grid of the current ped in the current frame
-                            grid_ped_batch_seq = grid_batch_seq[ped]
-
-                            # NOTE: need to add a non-linear ReLU layer before computing the tensor
-                            # Compute the social tensor given his grid
-                            social_tensor = getSocialTensor(grid_ped_batch_seq, states, args)
-
-                            # reshape input data
-                            x_ped_batch_seq = np.reshape(x_ped_batch_seq, (1, 2))
-                            y_ped_batch_seq = np.reshape(y_ped_batch_seq, (1, 2))
-
-                            # reshape tensor data
-                            social_tensor = np.reshape(social_tensor, (1, args.grid_size*args.grid_size*args.rnn_size))
-
-                            # Feed the source, target, the LSTM cell state and the social tensor to the model
-                            feed = {model.input_data: x_ped_batch_seq, model.target_data: y_ped_batch_seq, model.initial_state: lstm_states[ped], model.social_tensor: social_tensor}
-                            # feed = {model.input_data: x_ped_batch_seq, model.target_data: y_ped_batch_seq, model.initial_state: lstm_state, model.social_tensor: social_tensor}
-                            # Fetch the cost for this point, output of the LSTM, the final cell state and the train operator
-                            train_loss, states[ped], lstm_states[ped], _ = sess.run([model.cost, model.output, model.final_state, model.train_op], feed)
-                            # train_loss, states[ped], lstm_state, _ = sess.run([model.cost, model.output, model.final_state, model.train_op], feed)
-
-                            # Increment the batch loss with the loss incurred
-                            loss_batch += train_loss
-                            # Increment the counter
-                            counter += 1
-
-                # Toc
                 end = time.time()
-
-                # Calculate the mean batch loss
-                if counter != 0:
-                    loss_batch = loss_batch / counter
-                else:
-                    # No ped existed for more than one frame
-                    print "Never trained. Peds existed only for one frame"
-                    loss_batch = 0
-
-                # Print epoch, batch, loss and time taken
+                loss_batch = loss_batch / data_loader.batch_size
                 print(
                     "{}/{} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}"
                     .format(

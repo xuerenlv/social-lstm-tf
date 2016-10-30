@@ -1,14 +1,14 @@
 import os
 import pickle
 import numpy as np
-
+import ipdb
 
 # The data loader class that loads data from the datasets considering
 # each frame as a datapoint and a sequence of consecutive frames as the
 # sequence.
 class SocialDataLoader():
 
-    def __init__(self, batch_size=50, seq_length=5, forcePreProcess=False):
+    def __init__(self, batch_size=50, seq_length=5, maxNumPeds=40, forcePreProcess=False):
         '''
         Initialiser function for the SocialDataLoader class
         params:
@@ -30,7 +30,7 @@ class SocialDataLoader():
         self.data_dir = './data'
 
         # Maximum number of peds in a single frame (Number obtained by checking the datasets)
-        self.maxNumPeds = 37
+        self.maxNumPeds = maxNumPeds
 
         # Store the arguments
         self.batch_size = batch_size
@@ -104,8 +104,10 @@ class SocialDataLoader():
                 pedsList = pedsInFrame[1, :].tolist()
 
                 # Helper print statement to figure out the maximum number of peds in any frame in any dataset
-                if len(pedsList) > 37:
-                    print len(pedsList)
+                # if len(pedsList) > 1:
+                # print len(pedsList)
+                # DEBUG
+                #    continue
 
                 # Add number of peds in the current frame to the stored data
                 numPeds_data[dataset_index].append(len(pedsList))
@@ -166,11 +168,11 @@ class SocialDataLoader():
         '''
         Function to get the next batch of points
         '''
-        # source data
+        # Source data
         x_batch = []
-        # target data
+        # Target data
         y_batch = []
-        # dataset data
+        # Dataset data
         d = []
         # Iteration index
         i = 0
@@ -181,15 +183,37 @@ class SocialDataLoader():
             idx = self.frame_pointer
             # While there is still seq_length number of frames left in the current dataset
             if idx + self.seq_length < frame_data.shape[0]:
-                # Extract frame data from idx until seq_length
-                x_batch.append(np.copy(frame_data[idx:idx+self.seq_length, :]))
-                y_batch.append(np.copy(frame_data[idx+1:idx+self.seq_length+1, :]))
+                # All the data in this sequence
+                seq_frame_data = frame_data[idx:idx+self.seq_length+1, :]
+                seq_source_frame_data = frame_data[idx:idx+self.seq_length, :]
+                seq_target_frame_data = frame_data[idx+1:idx+self.seq_length+1, :]
+                # Number of unique peds in this sequence of frames
+                pedID_list = np.unique(seq_frame_data[:, :, 0])
+                numUniquePeds = pedID_list.shape[0]
 
-                # Store the current dataset index
-                d.append(self.dataset_pointer)
-                # Increment the frame pointer for the current dataset
+                sourceData = np.zeros((self.seq_length, self.maxNumPeds, 3))
+                targetData = np.zeros((self.seq_length, self.maxNumPeds, 3))
+
+                for seq in range(self.seq_length):
+                    sseq_frame_data = seq_source_frame_data[seq, :]
+                    tseq_frame_data = seq_target_frame_data[seq, :]
+                    for ped in range(numUniquePeds):
+                        pedID = pedID_list[ped]
+
+                        if pedID == 0:
+                            continue
+                        else:
+                            sped = sseq_frame_data[sseq_frame_data[:, 0] == pedID, :]
+                            tped = np.squeeze(tseq_frame_data[tseq_frame_data[:, 0] == pedID, :])
+                            if sped.size != 0:
+                                sourceData[seq, ped, :] = sped
+                            if tped.size != 0:
+                                targetData[seq, ped, :] = tped
+
+                x_batch.append(sourceData)
+                y_batch.append(targetData)
                 self.frame_pointer += self.seq_length
-                # Increment the sequence index (iteration index)
+                d.append(self.dataset_pointer)
                 i += 1
             else:
                 # Not enough frames left
