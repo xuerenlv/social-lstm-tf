@@ -4,6 +4,7 @@ import tensorflow as tf
 import os
 import pickle
 import argparse
+import ipdb
 
 from social_utils import SocialDataLoader
 from social_model import SocialModel
@@ -55,6 +56,9 @@ def main():
     # Predicted length of the trajectory parameter
     parser.add_argument('--pred_length', type=int, default=3,
                         help='Predicted length of the trajectory')
+    # Test dataset
+    parser.add_argument('--test_dataset', type=int, default=0,
+                        help='Dataset to be tested on')
 
     # Parse the parameters
     sample_args = parser.parse_args()
@@ -77,8 +81,11 @@ def main():
     # Restore the model at the checkpoint
     saver.restore(sess, ckpt.model_checkpoint_path)
 
+    # Dataset to get data from
+    dataset = [sample_args.test_dataset]
+
     # Create a SocialDataLoader object with batch_size 1 and seq_length equal to observed_length + pred_length
-    data_loader = SocialDataLoader(1, sample_args.pred_length + sample_args.obs_length, saved_args.maxNumPeds, True)
+    data_loader = SocialDataLoader(1, sample_args.pred_length + sample_args.obs_length, saved_args.maxNumPeds, dataset, True)
 
     # Reset all pointers of the data_loader
     data_loader.reset_batch_pointer()
@@ -93,7 +100,7 @@ def main():
         # Batch size is 1
         x_batch, y_batch, d_batch = x[0], y[0], d[0]
 
-        if d_batch == 0:
+        if d_batch == 0 and dataset[0] == 0:
             dimensions = [640, 480]
         else:
             dimensions = [720, 576]
@@ -104,8 +111,9 @@ def main():
         obs_grid = grid_batch[:sample_args.obs_length]
         # obs_traj is an array of shape obs_length x maxNumPeds x 3
 
-        complete_traj = model.sample(sess, obs_traj, obs_grid, dimensions, num=sample_args.pred_length)
+        complete_traj = model.sample(sess, obs_traj, obs_grid, dimensions, x_batch, sample_args.pred_length)
 
+        # ipdb.set_trace()
         # complete_traj is an array of shape (obs_length+pred_length) x maxNumPeds x 3
         total_error += get_mean_error(complete_traj, x[0], sample_args.obs_length, saved_args.maxNumPeds)
 
