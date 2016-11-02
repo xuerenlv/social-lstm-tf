@@ -43,6 +43,9 @@ def main():
     # Predicted length of the trajectory parameter
     parser.add_argument('--pred_length', type=int, default=3,
                         help='Predicted length of the trajectory')
+    # Test dataset
+    parser.add_argument('--test_dataset', type=int, default=1,
+                        help='Dataset to be tested on')
 
     # Read the arguments
     sample_args = parser.parse_args()
@@ -65,9 +68,12 @@ def main():
     # Restore the model at the checpoint
     saver.restore(sess, ckpt.model_checkpoint_path)
 
+    # Dataset to get data from
+    dataset = [sample_args.test_dataset]
+
     # Initialize the dataloader object to
     # Get sequences of length obs_length+pred_length
-    data_loader = DataLoader(1, sample_args.pred_length + sample_args.obs_length)
+    data_loader = DataLoader(1, sample_args.pred_length + sample_args.obs_length, dataset, True)
 
     # Reset the data pointers of the data loader object
     data_loader.reset_batch_pointer()
