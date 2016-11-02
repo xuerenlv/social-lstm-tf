@@ -1,4 +1,3 @@
-import numpy as np
 import tensorflow as tf
 import argparse
 import os
@@ -28,13 +27,13 @@ def main():
     parser.add_argument('--batch_size', type=int, default=10,
                         help='minibatch size')
     # Length of sequence to be considered parameter
-    parser.add_argument('--seq_length', type=int, default=10,
+    parser.add_argument('--seq_length', type=int, default=5,
                         help='RNN sequence length')
     # Number of epochs parameter
-    parser.add_argument('--num_epochs', type=int, default=100,
+    parser.add_argument('--num_epochs', type=int, default=50,
                         help='number of epochs')
     # Frequency at which the model should be saved parameter
-    parser.add_argument('--save_every', type=int, default=500,
+    parser.add_argument('--save_every', type=int, default=400,
                         help='save frequency')
     # TODO: (resolve) Clipping gradients for now. No idea whether we should
     # Gradient value at which it should be clipped
@@ -54,19 +53,28 @@ def main():
     parser.add_argument('--embedding_size', type=int, default=64,
                         help='Embedding dimension for the spatial coordinates')
     # Size of neighborhood to be considered parameter
-    parser.add_argument('--neighborhood_size', type=int, default=50,
+    parser.add_argument('--neighborhood_size', type=int, default=32,
                         help='Neighborhood size to be considered for social grid')
     # Size of the social grid parameter
     parser.add_argument('--grid_size', type=int, default=2,
                         help='Grid size of the social grid')
-    parser.add_argument('--maxNumPeds', type=int, default=40,
+    # Maximum number of pedestrians to be considered
+    parser.add_argument('--maxNumPeds', type=int, default=27,
                         help='Maximum Number of Pedestrians')
+    # The leave out dataset
+    parser.add_argument('--leaveDataset', type=int, default=1,
+                        help='The dataset index to be left out in training')
     args = parser.parse_args()
     train(args)
 
 
 def train(args):
-    data_loader = SocialDataLoader(args.batch_size, args.seq_length, args.maxNumPeds, forcePreProcess=True)
+    datasets = range(2)
+    # Remove the leaveDataset from datasets
+    datasets.remove(args.leaveDataset)
+
+    # Create the SocialDataLoader object
+    data_loader = SocialDataLoader(args.batch_size, args.seq_length, args.maxNumPeds, datasets, forcePreProcess=True)
 
     with open(os.path.join('save', 'social_config.pkl'), 'wb') as f:
         pickle.dump(args, f)
@@ -111,7 +119,7 @@ def train(args):
                     # d_batch would be a scalar identifying the dataset from which this sequence is extracted
                     x_batch, y_batch, d_batch = x[batch], y[batch], d[batch]
 
-                    if d_batch == 0:
+                    if d_batch == 0 and datasets[0] == 0:
                         dataset_data = [640, 480]
                     else:
                         dataset_data = [720, 576]
@@ -122,6 +130,9 @@ def train(args):
                     feed = {model.input_data: x_batch, model.target_data: y_batch, model.grid_data: grid_batch}
 
                     train_loss, _ = sess.run([model.cost, model.train_op], feed)
+
+                    # if result[0][0] > 1:
+                    #    print result
 
                     loss_batch += train_loss
 
