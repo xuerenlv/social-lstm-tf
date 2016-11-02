@@ -114,7 +114,9 @@ class SocialModel():
 
             current_frame_data = frame  # MNP x 3 tensor
             current_grid_frame_data = grid_frame_data[seq]  # MNP x MNP x (GS**2) tensor
-            social_tensor = self.getSocialTensor(current_grid_frame_data, self.output_states)  # MNP x (GS**2 * RNN_size)
+            # social_tensor = self.getSocialTensor(current_grid_frame_data, self.output_states)  # MNP x (GS**2 * RNN_size)
+            # NOTE: Using a tensor of zeros as the social tensor
+            social_tensor = tf.zeros([args.maxNumPeds, args.grid_size*args.grid_size*args.rnn_size])
 
             for ped in range(args.maxNumPeds):
                 print "Pedestrian Number", ped
@@ -157,7 +159,7 @@ class SocialModel():
                 #    # Store the distribution parameters for the current ped
                 #    self.initial_output[ped] = output
 
-                with tf.name_scope("extract_target_poed"):
+                with tf.name_scope("extract_target_ped"):
                     # Extract x and y coordinates of the target data
                     # x_data and y_data would be tensors of shape 1 x 1
                     [x_data, y_data] = tf.split(1, 2, tf.slice(frame_target_data[seq], [ped, 1], [1, 2]))
@@ -206,18 +208,18 @@ class SocialModel():
     def define_embedding_and_output_layers(self, args):
         # Define variables for the spatial coordinates embedding layer
         with tf.variable_scope("coordinate_embedding"):
-            self.embedding_w = tf.get_variable("embedding_w", [2, args.embedding_size], initializer=tf.truncated_normal_initializer(stddev=0.1))
-            self.embedding_b = tf.get_variable("embedding_b", [args.embedding_size], initializer=tf.constant_initializer(0.1))
+            self.embedding_w = tf.get_variable("embedding_w", [2, args.embedding_size], initializer=tf.truncated_normal_initializer(stddev=0.01))
+            self.embedding_b = tf.get_variable("embedding_b", [args.embedding_size], initializer=tf.constant_initializer(0.01))
 
         # Define variables for the social tensor embedding layer
         with tf.variable_scope("tensor_embedding"):
-            self.embedding_t_w = tf.get_variable("embedding_t_w", [args.grid_size*args.grid_size*args.rnn_size, args.embedding_size], initializer=tf.truncated_normal_initializer(stddev=0.1))
-            self.embedding_t_b = tf.get_variable("embedding_t_b", [args.embedding_size], initializer=tf.constant_initializer(0.1))
+            self.embedding_t_w = tf.get_variable("embedding_t_w", [args.grid_size*args.grid_size*args.rnn_size, args.embedding_size], initializer=tf.truncated_normal_initializer(stddev=0.01))
+            self.embedding_t_b = tf.get_variable("embedding_t_b", [args.embedding_size], initializer=tf.constant_initializer(0.01))
 
         # Define variables for the output linear layer
         with tf.variable_scope("output_layer"):
-            self.output_w = tf.get_variable("output_w", [args.rnn_size, self.output_size], initializer=tf.truncated_normal_initializer(stddev=0.1))
-            self.output_b = tf.get_variable("output_b", [self.output_size], initializer=tf.constant_initializer(0.1))
+            self.output_w = tf.get_variable("output_w", [args.rnn_size, self.output_size], initializer=tf.truncated_normal_initializer(stddev=0.01))
+            self.output_b = tf.get_variable("output_b", [self.output_size], initializer=tf.constant_initializer(0.01))
 
     def tf_2d_normal(self, x, y, mux, muy, sx, sy, rho):
         '''
@@ -247,7 +249,6 @@ class SocialModel():
         denom = 2 * np.pi * tf.mul(sxsy, tf.sqrt(negRho))
         # Final PDF calculation
         result = tf.div(result, denom)
-        self.result = result
         return result
 
     def get_lossfunc(self, z_mux, z_muy, z_sx, z_sy, z_corr, x_data, y_data):
@@ -263,8 +264,16 @@ class SocialModel():
         x_data : target x points
         y_data : target y points
         '''
+        step = tf.constant(1e-3, dtype=tf.float32, shape=(1, 1))
+
         # Calculate the PDF of the data w.r.t to the distribution
-        result0 = self.tf_2d_normal(x_data, y_data, z_mux, z_muy, z_sx, z_sy, z_corr)
+        result0_1 = self.tf_2d_normal(x_data, y_data, z_mux, z_muy, z_sx, z_sy, z_corr)
+        result0_2 = self.tf_2d_normal(tf.add(x_data, step), y_data, z_mux, z_muy, z_sx, z_sy, z_corr)
+        result0_3 = self.tf_2d_normal(x_data, tf.add(y_data, step), z_mux, z_muy, z_sx, z_sy, z_corr)
+        result0_4 = self.tf_2d_normal(tf.add(x_data, step), tf.add(y_data, step), z_mux, z_muy, z_sx, z_sy, z_corr)
+
+        result0 = tf.div(tf.add(tf.add(tf.add(result0_1, result0_2), result0_3), result0_4), tf.constant(4.0, dtype=tf.float32, shape=(1, 1)))
+        result0 = tf.mul(tf.mul(result0, step), step)
 
         # For numerical stability purposes
         epsilon = 1e-20
@@ -340,12 +349,12 @@ class SocialModel():
         x = np.random.multivariate_normal(mean, cov, 1)
         return x[0][0], x[0][1]
 
-    def sample(self, sess, traj, grid, dimensions, num=10):
+    def sample(self, sess, traj, grid, dimensions, true_traj, num=10):
         # traj is a sequence of frames (of length obs_length)
         # so traj shape is (obs_length x maxNumPeds x 3)
         # grid is a tensor of shape obs_length x maxNumPeds x maxNumPeds x (gs**2)
         states = sess.run(self.LSTM_states)
-
+        # print "Fitting"
         # For each frame in the sequence
         for index, frame in enumerate(traj[:-1]):
             data = np.reshape(frame, (1, self.maxNumPeds, 3))
@@ -355,6 +364,7 @@ class SocialModel():
             feed = {self.input_data: data, self.LSTM_states: states, self.grid_data: grid_data, self.target_data: target_data}
 
             [states, cost] = sess.run([self.final_states, self.cost], feed)
+            # print cost
 
         ret = traj
 
@@ -363,18 +373,18 @@ class SocialModel():
         prev_data = np.reshape(last_frame, (1, self.maxNumPeds, 3))
         prev_grid_data = np.reshape(grid[-1], (1, self.maxNumPeds, self.maxNumPeds, self.grid_size*self.grid_size))
 
+        prev_target_data = np.reshape(true_traj[traj.shape[0]], (1, self.maxNumPeds, 3))
+        # print "Prediction"
         # Prediction
         for t in range(num):
-            feed = {self.input_data: prev_data, self.LSTM_states: states, self.grid_data: prev_grid_data}
-            [output, states] = sess.run([self.final_output, self.final_states], feed)
-
+            feed = {self.input_data: prev_data, self.LSTM_states: states, self.grid_data: prev_grid_data, self.target_data: prev_target_data}
+            [output, states, cost] = sess.run([self.final_output, self.final_states, self.cost], feed)
+            # print cost
             # Output is a list of lists where the inner lists contain matrices of shape 1x5. The outer list contains only one element (since seq_length=1) and the inner list contains maxNumPeds elements
             # output = output[0]
             newpos = np.zeros((1, self.maxNumPeds, 3))
             for pedindex, pedoutput in enumerate(output):
-                # CHECK
                 [o_mux, o_muy, o_sx, o_sy, o_corr] = np.split(pedoutput[0], 5, 0)
-                # STUPID BUG
                 mux, muy, sx, sy, corr = o_mux[0], o_muy[0], np.exp(o_sx[0]), np.exp(o_sy[0]), np.tanh(o_corr[0])
                 next_x, next_y = self.sample_gaussian_2d(mux, muy, sx, sy, corr)
 
@@ -382,6 +392,8 @@ class SocialModel():
             ret = np.vstack((ret, newpos))
             prev_data = newpos
             prev_grid_data = getSequenceGridMask(prev_data, dimensions, self.args.neighborhood_size, self.grid_size)
+            if t != num - 1:
+                prev_target_data = np.reshape(true_traj[traj.shape[0] + t + 1], (1, self.maxNumPeds, 3))
 
         # The returned ret is of shape (obs_length+pred_length) x maxNumPeds x 3
         return ret
