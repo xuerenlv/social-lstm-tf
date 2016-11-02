@@ -7,7 +7,7 @@ import random
 # TODO : (improve) Add functionality to retrieve data only from specific datasets
 class DataLoader():
 
-    def __init__(self, batch_size=50, seq_length=5, forcePreProcess=False):
+    def __init__(self, batch_size=50, seq_length=5, datasets=[0, 1, 2, 3, 4], forcePreProcess=False):
         '''
         Initialiser function for the DataLoader class
         params:
@@ -18,9 +18,9 @@ class DataLoader():
         # self.data_dirs = ['./data/eth/univ', './data/eth/hotel',
         #                  './data/ucy/zara/zara01', './data/ucy/zara/zara02',
         #                  './data/ucy/univ']
+        self.data_dirs = ['./data/eth/univ', './data/eth/hotel']
 
-        # self.data_dirs = ['./data/eth/univ', './data/eth/hotel']
-        self.data_dirs = ['./data/eth/univ']
+        self.used_data_dirs = [self.data_dirs[x] for x in datasets]
 
         # Data directory where the pre-processed pickle file resides
         self.data_dir = './data'
@@ -36,7 +36,7 @@ class DataLoader():
         if not(os.path.exists(data_file)) or forcePreProcess:
             print("Creating pre-processed data from raw data")
             # Preprocess the data from the csv files
-            self.preprocess(self.data_dirs, data_file)
+            self.preprocess(self.used_data_dirs, data_file)
 
         # Load the data from the pickled file
         self.load_preprocessed(data_file)
