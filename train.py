@@ -51,14 +51,20 @@ def main():
     # Dimension of the embeddings parameter
     parser.add_argument('--embedding_size', type=int, default=128,
                         help='Embedding dimension for the spatial coordinates')
+    parser.add_argument('--leaveDataset', type=int, default=1,
+                        help='The dataset index to be left out in training')
     args = parser.parse_args()
     train(args)
 
 
 def train(args):
+    datasets = range(2)
+    # Remove the leaveDataset from datasets
+    datasets.remove(args.leaveDataset)
+
     # Create the data loader object. This object would preprocess the data in terms of
     # batches each of size args.batch_size, of length args.seq_length
-    data_loader = DataLoader(args.batch_size, args.seq_length, forcePreProcess=True)
+    data_loader = DataLoader(args.batch_size, args.seq_length, datasets, forcePreProcess=True)
 
     # Save the arguments int the config file
     with open(os.path.join('save', 'config.pkl'), 'wb') as f:
