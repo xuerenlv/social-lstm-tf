@@ -145,8 +145,16 @@ class Model():
             x_data : target x points
             y_data : target y points
             '''
+            step = tf.constant(1e-3, dtype=tf.float32, shape=(1, 1))
+
             # Calculate the PDF of the data w.r.t to the distribution
-            result0 = tf_2d_normal(x_data, y_data, z_mux, z_muy, z_sx, z_sy, z_corr)
+            result0_1 = tf_2d_normal(x_data, y_data, z_mux, z_muy, z_sx, z_sy, z_corr)
+            result0_2 = tf_2d_normal(tf.add(x_data, step), y_data, z_mux, z_muy, z_sx, z_sy, z_corr)
+            result0_3 = tf_2d_normal(x_data, tf.add(y_data, step), z_mux, z_muy, z_sx, z_sy, z_corr)
+            result0_4 = tf_2d_normal(tf.add(x_data, step), tf.add(y_data, step), z_mux, z_muy, z_sx, z_sy, z_corr)
+
+            result0 = tf.div(tf.add(tf.add(tf.add(result0_1, result0_2), result0_3), result0_4), tf.constant(4.0, dtype=tf.float32, shape=(1, 1)))
+            result0 = tf.mul(tf.mul(result0, step), step)
 
             # For numerical stability purposes
             epsilon = 1e-20
