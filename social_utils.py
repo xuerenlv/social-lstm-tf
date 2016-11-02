@@ -8,7 +8,7 @@ import ipdb
 # sequence.
 class SocialDataLoader():
 
-    def __init__(self, batch_size=50, seq_length=5, maxNumPeds=40, forcePreProcess=False):
+    def __init__(self, batch_size=50, seq_length=5, maxNumPeds=40, datasets=[0, 1, 2, 3, 4], forcePreProcess=False):
         '''
         Initialiser function for the SocialDataLoader class
         params:
@@ -20,8 +20,9 @@ class SocialDataLoader():
         # self.data_dirs = ['./data/eth/univ', './data/eth/hotel',
         #                  './data/ucy/zara/zara01', './data/ucy/zara/zara02',
         #                  './data/ucy/univ']
-        # self.data_dirs = ['./data/eth/univ', './data/eth/hotel']
-        self.data_dirs = ['./data/eth/univ']
+        self.data_dirs = ['./data/eth/univ', './data/eth/hotel']
+
+        self.used_data_dirs = [self.data_dirs[x] for x in datasets]
 
         # Number of datasets
         self.numDatasets = len(self.data_dirs)
@@ -44,7 +45,7 @@ class SocialDataLoader():
             print("Creating pre-processed data from raw data")
             # Preprocess the data from the csv files of the datasets
             # Note that this data is processed in frames
-            self.frame_preprocess(self.data_dirs, data_file)
+            self.frame_preprocess(self.used_data_dirs, data_file)
 
         # Load the processed data from the pickle file
         self.load_preprocessed(data_file)
